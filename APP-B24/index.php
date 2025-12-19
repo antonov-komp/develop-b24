@@ -508,6 +508,17 @@ if (isset($user['UF_DEPARTMENT'])) {
 			align-items: center;
 			justify-content: center;
 			padding: 20px;
+			opacity: 0;
+			animation: fadeIn 0.5s ease-in-out forwards;
+		}
+		
+		@keyframes fadeIn {
+			from {
+				opacity: 0;
+			}
+			to {
+				opacity: 1;
+			}
 		}
 		
 		.welcome-container {
@@ -518,6 +529,20 @@ if (isset($user['UF_DEPARTMENT'])) {
 			max-width: 600px;
 			width: 100%;
 			text-align: center;
+			opacity: 0;
+			transform: translateY(30px);
+			animation: slideUpFadeIn 0.6s ease-out 0.2s forwards;
+		}
+		
+		@keyframes slideUpFadeIn {
+			from {
+				opacity: 0;
+				transform: translateY(30px);
+			}
+			to {
+				opacity: 1;
+				transform: translateY(0);
+			}
 		}
 		
 		.welcome-header {
@@ -539,6 +564,20 @@ if (isset($user['UF_DEPARTMENT'])) {
 			object-fit: cover;
 			border: 4px solid #667eea;
 			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+			opacity: 0;
+			transform: scale(0.8);
+			animation: scaleIn 0.5s ease-out 0.4s forwards;
+		}
+		
+		@keyframes scaleIn {
+			from {
+				opacity: 0;
+				transform: scale(0.8);
+			}
+			to {
+				opacity: 1;
+				transform: scale(1);
+			}
 		}
 		
 		.user-name {
@@ -553,6 +592,19 @@ if (isset($user['UF_DEPARTMENT'])) {
 			border-radius: 12px;
 			padding: 25px;
 			margin-bottom: 20px;
+			opacity: 0;
+			animation: fadeInUp 0.5s ease-out 0.6s forwards;
+		}
+		
+		@keyframes fadeInUp {
+			from {
+				opacity: 0;
+				transform: translateY(20px);
+			}
+			to {
+				opacity: 1;
+				transform: translateY(0);
+			}
 		}
 		
 		.info-row {
@@ -611,6 +663,8 @@ if (isset($user['UF_DEPARTMENT'])) {
 			padding: 15px;
 			border-radius: 8px;
 			margin-top: 20px;
+			opacity: 0;
+			animation: fadeInUp 0.5s ease-out 0.8s forwards;
 		}
 		
 		.domain-label {
@@ -631,6 +685,22 @@ if (isset($user['UF_DEPARTMENT'])) {
 			border-top: 1px solid #e9ecef;
 			font-size: 12px;
 			color: #999;
+			opacity: 0;
+			animation: fadeInUp 0.5s ease-out 1s forwards;
+		}
+		
+		.footer form {
+			opacity: 0;
+			animation: fadeInUp 0.5s ease-out 1.2s forwards;
+		}
+		
+		.footer button {
+			transition: transform 0.3s ease, box-shadow 0.3s ease;
+		}
+		
+		.footer button:hover {
+			transform: translateY(-3px);
+			box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4) !important;
 		}
 	</style>
 </head>
@@ -725,6 +795,23 @@ if (isset($user['UF_DEPARTMENT'])) {
 				<p style="color: #28a745; margin-top: 10px; font-size: 11px;">
 					✓ Используется токен текущего пользователя
 				</p>
+			<?php endif; ?>
+			
+			<?php if ($isAdmin): ?>
+			<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef;">
+				<form method="POST" action="token-analysis.php" style="display: inline-block;">
+					<?php if (!empty($_REQUEST['AUTH_ID'])): ?>
+						<input type="hidden" name="AUTH_ID" value="<?= htmlspecialchars($_REQUEST['AUTH_ID']) ?>">
+					<?php endif; ?>
+					<?php if (!empty($_REQUEST['DOMAIN'])): ?>
+						<input type="hidden" name="DOMAIN" value="<?= htmlspecialchars($_REQUEST['DOMAIN']) ?>">
+					<?php endif; ?>
+					<button type="submit" 
+							style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); font-size: 14px;">
+						🔍 Анализ токена и прав доступа
+					</button>
+				</form>
+			</div>
 			<?php endif; ?>
 		</div>
 	</div>
