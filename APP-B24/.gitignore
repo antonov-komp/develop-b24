@@ -3,7 +3,8 @@ logs/
 
 # Настройки с секретами
 settings.php
-config.jsonS
+config.json
+access-config.json
 settings.json
 settings_check.json
 
