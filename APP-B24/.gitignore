@@ -1,0 +1,12 @@
+# Логи
+logs/
+
+# Настройки с секретами
+settings.php
+settings.json
+settings_check.json
+
+# Временные файлы
+*.log
+*.tmp
+
