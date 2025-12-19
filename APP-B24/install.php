@@ -1,5 +1,20 @@
 <?php
-require_once (__DIR__.'/crest.php');
+/**
+ * Страница установки приложения Bitrix24
+ * 
+ * Защищена от прямого доступа - работает только при установке из Bitrix24
+ * Документация: https://context7.com/bitrix24/rest/
+ */
+
+require_once(__DIR__ . '/auth-check.php');
+
+// Проверка авторизации Bitrix24
+// Для install.php разрешаем доступ только если есть параметры установки от Bitrix24
+if (!checkBitrix24Auth()) {
+	redirectToFailure();
+}
+
+require_once(__DIR__ . '/crest.php');
 
 $result = CRest::installApp();
 if($result['rest_only'] === false):?>
