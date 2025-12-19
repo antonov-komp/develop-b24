@@ -170,28 +170,13 @@ function checkBitrix24Auth()
 			}
 		}
 		
-		// Если запрос успешен - проверяем, что это не прямой доступ
-		// Если токен валиден, но нет признаков запроса из Bitrix24 - проверяем дополнительно
-		if (!$isFromBitrix24) {
-			// Если нет Referer и нет параметров - это прямой доступ
-			if (!isset($_SERVER['HTTP_REFERER']) && 
-				empty($_REQUEST['DOMAIN']) && 
-				empty($_REQUEST['AUTH_ID']) &&
-				empty($_REQUEST['APP_SID'])) {
-				$logData['result'] = 'denied_direct_access_no_signs';
-				$logData['is_from_bitrix24'] = false;
-				$logData['token_valid'] = true;
-				@file_put_contents(__DIR__ . '/logs/auth-check-' . date('Y-m-d') . '.log', 
-					date('Y-m-d H:i:s') . ' - ' . json_encode($logData, JSON_UNESCAPED_UNICODE) . "\n", 
-					FILE_APPEND);
-				return false;
-			}
-		}
-		
-		// Если запрос успешен и есть признаки запроса из Bitrix24 - доступ разрешён
+		// Если запрос успешен - разрешаем доступ
+		// Если токен валиден, разрешаем доступ независимо от источника запроса
+		// Это позволяет открывать приложение напрямую, используя токен установщика из settings.json
 		$logData['result'] = 'allowed';
 		$logData['token_valid'] = true;
 		$logData['is_from_bitrix24'] = $isFromBitrix24;
+		$logData['access_type'] = $isFromBitrix24 ? 'bitrix24_iframe' : 'direct_access_with_installer_token';
 		@file_put_contents(__DIR__ . '/logs/auth-check-' . date('Y-m-d') . '.log', 
 			date('Y-m-d H:i:s') . ' - ' . json_encode($logData, JSON_UNESCAPED_UNICODE) . "\n", 
 			FILE_APPEND);

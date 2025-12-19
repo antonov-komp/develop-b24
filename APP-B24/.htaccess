@@ -1,0 +1,12 @@
+# Защита конфигурационных файлов от прямого доступа
+<FilesMatch "^(config\.json|settings\.json)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Защита логов от прямого доступа
+<FilesMatch "\.log$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+

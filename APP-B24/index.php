@@ -3,18 +3,182 @@
  * Главная страница приложения Bitrix24
  * 
  * Защищена от прямого доступа - работает только внутри Bitrix24 при активной авторизации
+ * Управляется через конфигурационный файл config.json
  * Отображает приветствие с информацией о текущем пользователе
  * Документация: https://context7.com/bitrix24/rest/
  */
 
 require_once(__DIR__ . '/auth-check.php');
 
+/**
+ * Логирование проверки конфига
+ * 
+ * @param string $message Сообщение для логирования
+ * @param array|null $context Дополнительный контекст (user_id, domain и т.д.)
+ */
+function logConfigCheck($message, $context = null) {
+	$logFile = __DIR__ . '/logs/config-check-' . date('Y-m-d') . '.log';
+	$logEntry = date('Y-m-d H:i:s') . ' - ' . $message;
+	
+	if ($context && is_array($context)) {
+		$logEntry .= ', ' . json_encode($context, JSON_UNESCAPED_UNICODE);
+	}
+	
+	$logEntry .= "\n";
+	@file_put_contents($logFile, $logEntry, FILE_APPEND);
+}
+
+/**
+ * Проверка конфигурации доступа к главной странице
+ * 
+ * Читает config.json и проверяет, включен ли интерфейс приложения.
+ * При ошибках чтения/парсинга использует безопасный режим (enabled: true).
+ * 
+ * @return array Результат проверки конфига
+ *   - 'enabled' (bool) — доступен ли интерфейс
+ *   - 'message' (string|null) — сообщение при деактивации
+ *   - 'last_updated' (string|null) — дата последнего обновления
+ */
+function checkIndexPageConfig() {
+	$configFile = __DIR__ . '/config.json';
+	$defaultConfig = [
+		'enabled' => true,
+		'message' => null,
+		'last_updated' => null
+	];
+	
+	// Получаем информацию о пользователе для логирования
+	$userId = $_REQUEST['AUTH_ID'] ?? 'unknown';
+	$domain = $_REQUEST['DOMAIN'] ?? 'unknown';
+	$context = [
+		'user_id' => $userId !== 'unknown' ? substr($userId, 0, 20) . '...' : 'unknown',
+		'domain' => $domain
+	];
+	
+	// Если файл отсутствует — используем значения по умолчанию
+	if (!file_exists($configFile)) {
+		logConfigCheck('CONFIG CHECK ERROR: Config file not found, using default (enabled=true)', $context);
+		return $defaultConfig;
+	}
+	
+	// Читаем файл конфига
+	$configContent = @file_get_contents($configFile);
+	if ($configContent === false) {
+		logConfigCheck('CONFIG CHECK ERROR: Failed to read config.json, using default (enabled=true)', $context);
+		return $defaultConfig;
+	}
+	
+	// Парсим JSON
+	$config = @json_decode($configContent, true);
+	if (json_last_error() !== JSON_ERROR_NONE) {
+		logConfigCheck('CONFIG CHECK ERROR: Failed to parse config.json: ' . json_last_error_msg() . ', using default (enabled=true)', $context);
+		return $defaultConfig;
+	}
+	
+	// Проверяем наличие секции index_page
+	if (!isset($config['index_page']) || !is_array($config['index_page'])) {
+		logConfigCheck('CONFIG CHECK ERROR: Section "index_page" not found in config.json, using default (enabled=true)', $context);
+		return $defaultConfig;
+	}
+	
+	$indexPageConfig = $config['index_page'];
+	
+	// Проверяем значение enabled
+	$enabled = isset($indexPageConfig['enabled']) 
+		? (bool)$indexPageConfig['enabled'] 
+		: true; // По умолчанию включено
+	
+	$message = $indexPageConfig['message'] ?? null;
+	$lastUpdated = $indexPageConfig['last_updated'] ?? null;
+	
+	// Логируем результат проверки
+	$logMessage = sprintf(
+		'CONFIG CHECK: enabled=%s, message=%s, last_updated=%s',
+		$enabled ? 'true' : 'false',
+		$message ? '"' . $message . '"' : 'null',
+		$lastUpdated ?? 'null'
+	);
+	logConfigCheck($logMessage, $context);
+	
+	return [
+		'enabled' => $enabled,
+		'message' => $message,
+		'last_updated' => $lastUpdated
+	];
+}
+
+/**
+ * Показ страницы ошибки конфига
+ * 
+ * @param string $message Сообщение для пользователя
+ * @param string|null $lastUpdated Дата последнего обновления конфига
+ */
+function showConfigErrorPage($message, $lastUpdated = null) {
+	// Формируем URL для страницы ошибки
+	$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+	$host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
+	$scriptPath = dirname($_SERVER['PHP_SELF']);
+	$scriptPath = rtrim($scriptPath, '/');
+	
+	if ($scriptPath === '' || $scriptPath === '.') {
+		$errorUrl = $protocol . '://' . $host . '/config-error.php';
+	} else {
+		$errorUrl = $protocol . '://' . $host . $scriptPath . '/config-error.php';
+	}
+	
+	// Добавляем параметры
+	// http_build_query() автоматически кодирует параметры, поэтому urlencode() не нужен
+	$params = [];
+	if ($message) {
+		$params['message'] = $message;
+	}
+	if ($lastUpdated) {
+		$params['last_updated'] = $lastUpdated;
+	}
+	
+	if (!empty($params)) {
+		$errorUrl .= '?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+	}
+	
+	// Очищаем буфер вывода перед отправкой заголовков
+	if (ob_get_level()) {
+		ob_clean();
+	}
+	
+	// Отправляем заголовки редиректа
+	header('HTTP/1.1 503 Service Unavailable', true, 503);
+	header('Location: ' . $errorUrl, true, 302);
+	header('Content-Type: text/html; charset=UTF-8');
+	
+	// Выводим сообщение на случай, если редирект не сработает
+	echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=' . htmlspecialchars($errorUrl) . '"></head><body><p>Redirecting to <a href="' . htmlspecialchars($errorUrl) . '">error page</a>...</p></body></html>';
+	
+	exit;
+}
+
 // Проверка авторизации Bitrix24
-if (!checkBitrix24Auth()) {
+$authResult = checkBitrix24Auth();
+if (!$authResult) {
+	logConfigCheck('AUTH CHECK FAILED: Redirecting to failure.php');
 	redirectToFailure();
 }
 
+// Проверка конфигурации доступа к главной странице
+$indexConfig = checkIndexPageConfig();
+if (!$indexConfig['enabled']) {
+	logConfigCheck('CONFIG CHECK FAILED: enabled=false, redirecting to config-error.php');
+	showConfigErrorPage(
+		$indexConfig['message'] ?? 'Интерфейс приложения временно недоступен.',
+		$indexConfig['last_updated'] ?? null
+	);
+	exit;
+}
+
+logConfigCheck('ACCESS GRANTED: Auth and config checks passed, showing interface');
+
+// Подключаем CREST для работы с Bitrix24 API
 require_once(__DIR__ . '/crest.php');
+logConfigCheck('CREST loaded successfully');
 
 /**
  * Получение данных текущего пользователя через токен из запроса
@@ -329,7 +493,24 @@ if (!$user || !isset($user['ID'])) {
 
 // Домен портала уже получен выше, используем его или устанавливаем значение по умолчанию
 if (!$portalDomain) {
-	$portalDomain = 'не указан';
+	// Если домен не определен, пытаемся получить из settings.json еще раз
+	$settingsFile = __DIR__ . '/settings.json';
+	if (file_exists($settingsFile)) {
+		$settingsContent = file_get_contents($settingsFile);
+		$settings = json_decode($settingsContent, true);
+		if (isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
+			$clientEndpoint = $settings['client_endpoint'];
+			if (preg_match('#https?://([^/]+)#', $clientEndpoint, $matches)) {
+				$portalDomain = $matches[1];
+			}
+		}
+	}
+	
+	// Если все еще не определен, используем значение по умолчанию
+	if (!$portalDomain) {
+		$portalDomain = 'не указан';
+		logConfigCheck('WARNING: Portal domain not found, using default');
+	}
 }
 
 // Формирование данных пользователя
