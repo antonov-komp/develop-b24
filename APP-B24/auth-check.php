@@ -170,6 +170,54 @@ function checkBitrix24Auth()
 			}
 		}
 		
+		// Если запрос успешен - проверяем права доступа (если включена проверка)
+		// Если токен валиден, проверяем права доступа перед разрешением доступа
+		require_once(__DIR__ . '/access-control-functions.php');
+		
+		$currentUserAuthId = $_REQUEST['AUTH_ID'] ?? null;
+		$portalDomain = $_REQUEST['DOMAIN'] ?? null;
+		
+		// Получаем домен из settings.json, если не передан в запросе
+		if (!$portalDomain && isset($settings['domain']) && !empty($settings['domain'])) {
+			$portalDomain = $settings['domain'];
+		}
+		if (!$portalDomain && isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
+			if (preg_match('#https?://([^/]+)#', $settings['client_endpoint'], $matches)) {
+				$portalDomain = $matches[1];
+			}
+		}
+		
+		// Если есть токен текущего пользователя и домен - проверяем права доступа
+		if ($currentUserAuthId && $portalDomain && $portalDomain !== 'oauth.bitrix.info') {
+			// Получаем данные пользователя
+			$userResult = getCurrentUserDataForAccess($currentUserAuthId, $portalDomain);
+			
+			if (!isset($userResult['error']) && isset($userResult['result'])) {
+				$user = $userResult['result'];
+				$userId = $user['ID'] ?? null;
+				$userDepartments = $user['UF_DEPARTMENT'] ?? [];
+				
+				// Проверяем, является ли пользователь администратором
+				$isAdmin = checkIsAdmin($user, $currentUserAuthId, $portalDomain);
+				
+				// Если не администратор - проверяем права доступа
+				if (!$isAdmin) {
+					$hasAccess = checkUserAccess($userId, $userDepartments, $currentUserAuthId, $portalDomain);
+					
+					if (!$hasAccess) {
+						// Доступ запрещён — редирект на failure.php
+						$logData['result'] = 'denied_no_access_rights';
+						$logData['user_id'] = $userId;
+						@file_put_contents(__DIR__ . '/logs/auth-check-' . date('Y-m-d') . '.log', 
+							date('Y-m-d H:i:s') . ' - ' . json_encode($logData, JSON_UNESCAPED_UNICODE) . "\n", 
+							FILE_APPEND);
+						redirectToFailure();
+						return false;
+					}
+				}
+			}
+		}
+		
 		// Если запрос успешен - разрешаем доступ
 		// Если токен валиден, разрешаем доступ независимо от источника запроса
 		// Это позволяет открывать приложение напрямую, используя токен установщика из settings.json

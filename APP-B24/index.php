@@ -174,6 +174,57 @@ if (!$indexConfig['enabled']) {
 	exit;
 }
 
+// Проверка прав доступа (если включена)
+require_once(__DIR__ . '/access-control-functions.php');
+$accessConfig = getAccessConfig();
+if ($accessConfig['access_control']['enabled']) {
+	// Получаем данные текущего пользователя
+	$currentUserAuthId = $_REQUEST['AUTH_ID'] ?? null;
+	$portalDomain = $_REQUEST['DOMAIN'] ?? null;
+	
+	// Получаем домен из settings.json, если не передан в запросе
+	if (!$portalDomain) {
+		$settingsFile = __DIR__ . '/settings.json';
+		if (file_exists($settingsFile)) {
+			$settingsContent = file_get_contents($settingsFile);
+			$settings = json_decode($settingsContent, true);
+			if (isset($settings['domain']) && !empty($settings['domain']) && $settings['domain'] !== 'oauth.bitrix.info') {
+				$portalDomain = $settings['domain'];
+			} elseif (isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
+				if (preg_match('#https?://([^/]+)#', $settings['client_endpoint'], $matches)) {
+					$portalDomain = $matches[1];
+				}
+			}
+		}
+	}
+	
+	if ($currentUserAuthId && $portalDomain && $portalDomain !== 'oauth.bitrix.info') {
+		// Получаем данные пользователя
+		$userResult = getCurrentUserDataForAccess($currentUserAuthId, $portalDomain);
+		
+		if (!isset($userResult['error']) && isset($userResult['result'])) {
+			$user = $userResult['result'];
+			$userId = $user['ID'] ?? null;
+			$userDepartments = $user['UF_DEPARTMENT'] ?? [];
+			
+			// Проверяем, является ли пользователь администратором
+			$isAdmin = checkIsAdmin($user, $currentUserAuthId, $portalDomain);
+			
+			// Если не администратор — проверяем права доступа
+			if (!$isAdmin) {
+				$hasAccess = checkUserAccess($userId, $userDepartments, $currentUserAuthId, $portalDomain);
+				
+				if (!$hasAccess) {
+					// Доступ запрещён — редирект на failure.php
+					logConfigCheck('ACCESS DENIED: User does not have access rights');
+					redirectToFailure();
+					exit;
+				}
+			}
+		}
+	}
+}
+
 logConfigCheck('ACCESS GRANTED: Auth and config checks passed, showing interface');
 
 // Подключаем CREST для работы с Bitrix24 API
@@ -979,7 +1030,7 @@ if (isset($user['UF_DEPARTMENT'])) {
 			<?php endif; ?>
 			
 			<?php if ($isAdmin): ?>
-			<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef;">
+			<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef; display: flex; gap: 15px; flex-wrap: wrap;">
 				<form method="POST" action="token-analysis.php" style="display: inline-block;">
 					<?php if (!empty($_REQUEST['AUTH_ID'])): ?>
 						<input type="hidden" name="AUTH_ID" value="<?= htmlspecialchars($_REQUEST['AUTH_ID']) ?>">
@@ -990,6 +1041,18 @@ if (isset($user['UF_DEPARTMENT'])) {
 					<button type="submit" 
 							style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); font-size: 14px;">
 						🔍 Анализ токена и прав доступа
+					</button>
+				</form>
+				<form method="POST" action="access-control.php" style="display: inline-block;">
+					<?php if (!empty($_REQUEST['AUTH_ID'])): ?>
+						<input type="hidden" name="AUTH_ID" value="<?= htmlspecialchars($_REQUEST['AUTH_ID']) ?>">
+					<?php endif; ?>
+					<?php if (!empty($_REQUEST['DOMAIN'])): ?>
+						<input type="hidden" name="DOMAIN" value="<?= htmlspecialchars($_REQUEST['DOMAIN']) ?>">
+					<?php endif; ?>
+					<button type="submit" 
+							style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(245, 87, 108, 0.3); font-size: 14px;">
+						🔐 Управление правами доступа
 					</button>
 				</form>
 			</div>

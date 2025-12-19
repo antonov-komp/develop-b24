@@ -1,0 +1,10 @@
+{
+  "access_control": {
+    "enabled": true,
+    "departments": [],
+    "users": [],
+    "last_updated": null,
+    "updated_by": null
+  }
+}
+
