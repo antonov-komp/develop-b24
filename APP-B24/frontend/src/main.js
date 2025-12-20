@@ -36,12 +36,25 @@ app.config.errorHandler = (err, instance, info) => {
 console.log('Vue app mounting...', { 
   appElement: document.querySelector('#app'),
   router: router,
-  routes: router.getRoutes()
+  routes: router.getRoutes(),
+  currentPath: window.location.pathname
 });
 
 try {
   app.mount('#app');
   console.log('Vue app mounted successfully');
+  
+  // После монтирования проверяем текущий маршрут и исправляем, если нужно
+  setTimeout(() => {
+    const currentPath = router.currentRoute.value.path;
+    console.log('Current route after mount:', currentPath);
+    
+    // Если маршрут содержит index.php, редиректим на главную
+    if (currentPath === '/index.php' || currentPath.includes('index.php')) {
+      console.log('Redirecting from index.php to /');
+      router.replace({ path: '/', query: router.currentRoute.value.query });
+    }
+  }, 100);
 } catch (error) {
   console.error('Error mounting Vue app:', error);
 }

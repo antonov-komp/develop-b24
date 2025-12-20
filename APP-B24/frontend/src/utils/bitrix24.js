@@ -52,11 +52,12 @@ export function showWarning(message, duration = 4000) {
 
 /**
  * Получение параметров из URL (AUTH_ID, DOMAIN и т.д.)
+ * Bitrix24 может передавать APP_SID вместо AUTH_ID
  */
 export function getUrlParams() {
   const params = new URLSearchParams(window.location.search);
   return {
-    AUTH_ID: params.get('AUTH_ID'),
+    AUTH_ID: params.get('AUTH_ID') || params.get('APP_SID'), // APP_SID как fallback
     DOMAIN: params.get('DOMAIN'),
     APP_SID: params.get('APP_SID'),
     PLACEMENT: params.get('PLACEMENT'),
@@ -64,10 +65,38 @@ export function getUrlParams() {
 }
 
 /**
+ * Получение параметров авторизации Bitrix24
+ * Используется для API запросов
+ */
+export function getBitrix24AuthParams() {
+  const params = new URLSearchParams(window.location.search);
+  const authId = params.get('AUTH_ID') || params.get('APP_SID');
+  const domain = params.get('DOMAIN');
+  return { authId, domain };
+}
+
+/**
  * Проверка, что мы внутри Bitrix24 iframe
  */
 export function isInBitrix24() {
-  return typeof BX !== 'undefined' && typeof window.parent !== 'undefined';
+  // Проверка 1: наличие параметров Bitrix24 в URL (самый надежный способ)
+  const params = new URLSearchParams(window.location.search);
+  const hasBitrixParams = params.has('DOMAIN') && (params.has('APP_SID') || params.has('AUTH_ID'));
+  
+  if (hasBitrixParams) {
+    return true;
+  }
+  
+  // Проверка 2: наличие BX.* API
+  if (typeof BX !== 'undefined') {
+    return true;
+  }
+  
+  // Проверка 3: мы в iframe (window.self !== window.top)
+  // Но это может быть false даже в Bitrix24, если приложение открыто напрямую
+  const isInIframe = window.self !== window.top;
+  
+  return isInIframe;
 }
 
 /**

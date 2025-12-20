@@ -16,18 +16,17 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     // Добавление параметров из Bitrix24, если доступны
-    if (window.BX && window.BX.ajax) {
-      const params = new URLSearchParams(window.location.search);
-      const authId = params.get('AUTH_ID');
-      const domain = params.get('DOMAIN');
-      
-      if (authId && domain) {
-        config.params = {
-          ...config.params,
-          AUTH_ID: authId,
-          DOMAIN: domain,
-        };
-      }
+    const params = new URLSearchParams(window.location.search);
+    // Bitrix24 может передавать APP_SID вместо AUTH_ID
+    const authId = params.get('AUTH_ID') || params.get('APP_SID');
+    const domain = params.get('DOMAIN');
+    
+    if (authId && domain) {
+      config.params = {
+        ...config.params,
+        AUTH_ID: authId, // Всегда используем AUTH_ID в параметрах API
+        DOMAIN: domain,
+      };
     }
     
     return config;

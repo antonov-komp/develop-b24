@@ -1,5 +1,9 @@
 <template>
   <div id="app">
+    <!-- Отладочная информация -->
+    <div v-if="false" style="background: #ff0; padding: 10px; margin: 10px; border: 2px solid #f00;">
+      Router view should be here
+    </div>
     <router-view />
   </div>
 </template>
@@ -15,8 +19,18 @@ onMounted(() => {
   console.log('App.vue mounted', {
     currentRoute: router.currentRoute.value,
     location: window.location.href,
-    search: window.location.search
+    search: window.location.search,
+    pathname: window.location.pathname
   });
+  
+  // Проверка, что router-view рендерится
+  setTimeout(() => {
+    const routerView = document.querySelector('#app router-view, #app > div');
+    console.log('Router view check:', {
+      hasRouterView: !!routerView,
+      appContent: document.querySelector('#app')?.innerHTML?.substring(0, 200)
+    });
+  }, 100);
   
   // Проверка, что мы внутри Bitrix24 iframe
   if (isInBitrix24()) {
@@ -41,17 +55,21 @@ onMounted(() => {
   // Инициализация роутера
   // Если нет параметров авторизации, редирект на главную
   const params = new URLSearchParams(window.location.search);
+  // Bitrix24 может передавать APP_SID вместо AUTH_ID
+  const hasAuthId = params.has('AUTH_ID') || params.has('APP_SID');
+  const hasDomain = params.has('DOMAIN');
+  
   console.log('URL params:', {
-    AUTH_ID: params.get('AUTH_ID') ? 'present' : 'missing',
+    AUTH_ID: params.get('AUTH_ID') ? 'present' : (params.get('APP_SID') ? 'present (APP_SID)' : 'missing'),
     DOMAIN: params.get('DOMAIN') ? 'present' : 'missing'
   });
   
-  if (!params.has('AUTH_ID') || !params.has('DOMAIN')) {
+  if (!hasAuthId || !hasDomain) {
     // В development режиме можно разрешить доступ без параметров
     if (import.meta.env.DEV) {
-      console.warn('Development mode: AUTH_ID and DOMAIN not found');
+      console.warn('Development mode: AUTH_ID/APP_SID or DOMAIN not found');
     } else {
-      console.error('Missing AUTH_ID or DOMAIN in production mode');
+      console.error('Missing AUTH_ID/APP_SID or DOMAIN in production mode');
     }
   }
 });

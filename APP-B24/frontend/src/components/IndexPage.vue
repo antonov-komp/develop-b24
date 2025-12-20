@@ -4,12 +4,22 @@
       <div class="card">
         <h1>Добро пожаловать!</h1>
         
+        <!-- Отладочная информация -->
+        <div style="background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 12px;">
+          <strong>Debug:</strong><br>
+          Loading: {{ userStore.loading }}<br>
+          Error: {{ userStore.error || 'none' }}<br>
+          User: {{ user ? 'loaded' : 'not loaded' }}<br>
+          User ID: {{ user?.ID || 'N/A' }}
+        </div>
+        
         <div v-if="userStore.loading" class="loading">
           Загрузка данных...
         </div>
         
         <div v-else-if="userStore.error" class="error">
-          {{ userStore.error }}
+          <strong>Ошибка:</strong> {{ userStore.error }}
+          <br><small>Проверьте консоль для деталей</small>
         </div>
         
         <div v-else-if="user" class="user-info">
@@ -80,7 +90,8 @@ const userFullName = computed(() => {
 // Проверка, используется ли токен текущего пользователя
 const isCurrentUserToken = computed(() => {
   const params = new URLSearchParams(window.location.search);
-  return params.has('AUTH_ID') && params.has('DOMAIN');
+  // Bitrix24 может передавать APP_SID вместо AUTH_ID
+  return (params.has('AUTH_ID') || params.has('APP_SID')) && params.has('DOMAIN');
 });
 
 // Получение домена из URL или данных пользователя
@@ -90,11 +101,20 @@ const domain = computed(() => {
 });
 
 onMounted(async () => {
+  console.log('IndexPage mounted, fetching user data...');
   try {
     await userStore.fetchCurrentUser();
-    showSuccess('Данные пользователя загружены');
+    console.log('User data loaded:', userStore.currentUser);
+    if (userStore.currentUser) {
+      showSuccess('Данные пользователя загружены');
+    }
   } catch (err) {
     console.error('Ошибка загрузки пользователя:', err);
+    console.error('Error details:', {
+      message: err.message,
+      response: err.response?.data,
+      status: err.response?.status
+    });
     showError(err.message || 'Ошибка загрузки данных пользователя');
   }
 });

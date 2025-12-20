@@ -11,10 +11,14 @@ function checkApiAuth(?string $authId = null, ?string $domain = null): ?array
     global $authService, $logger, $segments;
     
     // Получение параметров из разных источников
+    // Bitrix24 может передавать APP_SID вместо AUTH_ID
     $authId = $authId 
         ?? $_GET['AUTH_ID'] 
+        ?? $_GET['APP_SID']  // APP_SID как fallback
         ?? $_POST['AUTH_ID'] 
+        ?? $_POST['APP_SID']  // APP_SID как fallback в POST
         ?? (json_decode(file_get_contents('php://input'), true)['AUTH_ID'] ?? null)
+        ?? (json_decode(file_get_contents('php://input'), true)['APP_SID'] ?? null)  // APP_SID в JSON
         ?? null;
         
     $domain = $domain 
