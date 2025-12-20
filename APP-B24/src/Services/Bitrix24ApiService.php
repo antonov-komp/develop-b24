@@ -2,23 +2,22 @@
 
 namespace App\Services;
 
-require_once(__DIR__ . '/../../crest.php');
-
-use App\Clients\Bitrix24Client;
+use App\Clients\Bitrix24SdkClient;
 use App\Exceptions\Bitrix24ApiException;
 
 /**
  * Сервис для работы с Bitrix24 REST API
  * 
  * Обеспечивает единый интерфейс для всех вызовов Bitrix24 REST API
+ * Использует Bitrix24SdkClient (b24phpsdk) вместо CRest
  * Документация: https://context7.com/bitrix24/rest/
  */
 class Bitrix24ApiService
 {
-    protected Bitrix24Client $client;
+    protected Bitrix24SdkClient $client;
     protected LoggerService $logger;
     
-    public function __construct(Bitrix24Client $client, LoggerService $logger)
+    public function __construct(Bitrix24SdkClient $client, LoggerService $logger)
     {
         $this->client = $client;
         $this->logger = $logger;
@@ -27,7 +26,7 @@ class Bitrix24ApiService
     /**
      * Вызов метода Bitrix24 REST API
      * 
-     * Использует Bitrix24Client для токена установщика
+     * Использует Bitrix24SdkClient для токена установщика
      * 
      * @param string $method Метод API
      * @param array $params Параметры запроса
@@ -68,62 +67,45 @@ class Bitrix24ApiService
             return null;
         }
         
-        $url = 'https://' . $domain . '/rest/user.current.json';
-        $requestParams = ['auth' => $authId];
-        $params = http_build_query($requestParams);
-        
         // Логирование запроса для отладки
-        $requestLog = [
-            'url' => $url,
-            'params' => $params,
+        $this->logger->log('User.current API request (SDK)', [
+            'domain' => $domain,
             'auth_length' => strlen($authId),
             'timestamp' => date('Y-m-d H:i:s')
-        ];
-        $this->logger->log('User.current API request', $requestLog, 'info');
+        ], 'info');
         
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        $responsePreview = substr($response, 0, 500);
-        curl_close($ch);
-        
-        // Логирование ответа
-        $responseLog = [
-            'http_code' => $httpCode,
-            'curl_error' => $curlError ?: 'none',
-            'response_preview' => $responsePreview,
-            'timestamp' => date('Y-m-d H:i:s')
-        ];
-        $this->logger->log('User.current API response', $responseLog, 'info');
-        
-        if ($curlError) {
-            return ['error' => 'curl_error', 'error_description' => $curlError];
-        }
-        
-        if ($httpCode !== 200) {
-            $result = json_decode($response, true);
-            if (isset($result['error'])) {
-                return $result;
+        try {
+            // Инициализируем клиент с токеном пользователя
+            $this->client->initializeWithUserToken($authId, $domain);
+            
+            // Вызываем через SDK
+            $result = $this->client->call('user.current', []);
+            
+            // Логирование ответа
+            $this->logger->log('User.current API response (SDK)', [
+                'has_result' => isset($result['result']),
+                'has_error' => isset($result['error']),
+                'timestamp' => date('Y-m-d H:i:s')
+            ], 'info');
+            
+            if (isset($result['error']) || !isset($result['result'])) {
+                return null;
             }
-            return ['error' => 'http_error', 'error_description' => 'HTTP Code: ' . $httpCode . '. Response: ' . $responsePreview];
+            
+            return $result['result'];
+        } catch (Bitrix24ApiException $e) {
+            $this->logger->logError('User.current API error (SDK)', [
+                'error' => $e->getApiError(),
+                'error_description' => $e->getApiErrorDescription(),
+                'message' => $e->getMessage()
+            ]);
+            return null;
+        } catch (\Exception $e) {
+            $this->logger->logError('User.current API exception (SDK)', [
+                'exception' => $e->getMessage()
+            ]);
+            return null;
         }
-        
-        $result = json_decode($response, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return ['error' => 'json_error', 'error_description' => json_last_error_msg()];
-        }
-        
-        return $result;
     }
     
     /**
@@ -180,76 +162,57 @@ class Bitrix24ApiService
             return null;
         }
         
-        $url = 'https://' . $domain . '/rest/department.get.json';
-        $params = http_build_query([
-            'auth' => $authId,
-            'ID' => $departmentId
-        ]);
-        
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-        
         // Логирование для отладки
-        $deptApiLog = [
+        $this->logger->log('Department.get API call (SDK)', [
             'department_id' => $departmentId,
-            'url' => $url,
-            'http_code' => $httpCode,
-            'curl_error' => $curlError ?: 'none',
-            'response_preview' => substr($response, 0, 500),
+            'domain' => $domain,
             'timestamp' => date('Y-m-d H:i:s')
-        ];
-        $this->logger->log('Department.get API call', $deptApiLog, 'info');
+        ], 'info');
         
-        if ($curlError) {
+        try {
+            // Инициализируем клиент с токеном пользователя
+            $this->client->initializeWithUserToken($authId, $domain);
+            
+            // Вызываем через SDK
+            $result = $this->client->call('department.get', ['ID' => $departmentId]);
+            
+            // Проверяем наличие ошибки в ответе
+            if (isset($result['error'])) {
+                $this->logger->logError('Department.get API error (SDK)', [
+                    'department_id' => $departmentId,
+                    'error' => $result['error'],
+                    'error_description' => $result['error_description'] ?? 'no description'
+                ]);
+                return null;
+            }
+            
+            // Метод department.get возвращает массив отделов в result
+            if (isset($result['result']) && is_array($result['result'])) {
+                // Если result - массив отделов
+                if (isset($result['result'][0]) && is_array($result['result'][0])) {
+                    return $result['result'][0];
+                }
+                // Если result - один отдел (не массив)
+                if (isset($result['result']['ID']) || isset($result['result']['NAME'])) {
+                    return $result['result'];
+                }
+            }
+            
             return null;
-        }
-        
-        if ($httpCode !== 200) {
-            return null;
-        }
-        
-        $result = json_decode($response, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return null;
-        }
-        
-        // Проверяем наличие ошибки в ответе
-        if (isset($result['error'])) {
-            $deptErrorLog = [
+        } catch (Bitrix24ApiException $e) {
+            $this->logger->logError('Department.get API exception (SDK)', [
                 'department_id' => $departmentId,
-                'error' => $result['error'],
-                'error_description' => $result['error_description'] ?? 'no description',
-                'timestamp' => date('Y-m-d H:i:s')
-            ];
-            $this->logger->logError('Department.get API error', $deptErrorLog);
+                'error' => $e->getApiError(),
+                'error_description' => $e->getApiErrorDescription()
+            ]);
+            return null;
+        } catch (\Exception $e) {
+            $this->logger->logError('Department.get API exception (SDK)', [
+                'department_id' => $departmentId,
+                'exception' => $e->getMessage()
+            ]);
             return null;
         }
-        
-        // Метод department.get возвращает массив отделов в result
-        if (isset($result['result']) && is_array($result['result'])) {
-            // Если result - массив отделов
-            if (isset($result['result'][0]) && is_array($result['result'][0])) {
-                return $result['result'][0];
-            }
-            // Если result - один отдел (не массив)
-            if (isset($result['result']['ID']) || isset($result['result']['NAME'])) {
-                return $result['result'];
-            }
-        }
-        
-        return null;
     }
     
     /**
@@ -268,61 +231,59 @@ class Bitrix24ApiService
             return [];
         }
         
-        $url = 'https://' . $domain . '/rest/department.get.json';
-        $params = http_build_query(['auth' => $authId]);
-        
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-        
-        $result = null;
-        
-        if ($curlError || $httpCode !== 200) {
-            // Пробуем через Bitrix24Client (токен установщика)
-            try {
-                $result = $this->client->call('department.get', []);
-            } catch (Bitrix24ApiException $e) {
-                $this->logger->logError('Department.get API error (fallback)', [
-                    'error' => $e->getApiError(),
-                    'error_description' => $e->getApiErrorDescription()
-                ]);
-                return [];
-            }
-        } else {
-            $result = json_decode($response, true);
-        }
-        
-        if (isset($result['error']) || !isset($result['result'])) {
-            return [];
-        }
-        
-        $departments = [];
-        $resultData = $result['result'];
-        
-        // Обработка разных вариантов структуры ответа
-        if (is_array($resultData)) {
-            foreach ($resultData as $dept) {
-                if (is_array($dept) && isset($dept['ID'])) {
-                    $departments[] = [
-                        'id' => (int)$dept['ID'],
-                        'name' => $dept['NAME'] ?? 'Без названия'
-                    ];
+        try {
+            // Инициализируем клиент с токеном пользователя
+            $this->client->initializeWithUserToken($authId, $domain);
+            
+            // Вызываем через SDK
+            $result = $this->client->call('department.get', []);
+            
+            if (isset($result['error']) || !isset($result['result'])) {
+                // Fallback: пробуем через токен установщика
+                try {
+                    $this->client->initializeWithInstallerToken();
+                    $result = $this->client->call('department.get', []);
+                } catch (Bitrix24ApiException $e) {
+                    $this->logger->logError('Department.get API error (fallback)', [
+                        'error' => $e->getApiError(),
+                        'error_description' => $e->getApiErrorDescription()
+                    ]);
+                    return [];
                 }
             }
+            
+            if (isset($result['error']) || !isset($result['result'])) {
+                return [];
+            }
+            
+            $departments = [];
+            $resultData = $result['result'];
+            
+            // Обработка разных вариантов структуры ответа
+            if (is_array($resultData)) {
+                foreach ($resultData as $dept) {
+                    if (is_array($dept) && isset($dept['ID'])) {
+                        $departments[] = [
+                            'id' => (int)$dept['ID'],
+                            'name' => $dept['NAME'] ?? 'Без названия'
+                        ];
+                    }
+                }
+            }
+            
+            return $departments;
+        } catch (Bitrix24ApiException $e) {
+            $this->logger->logError('Department.get API exception (SDK)', [
+                'error' => $e->getApiError(),
+                'error_description' => $e->getApiErrorDescription()
+            ]);
+            return [];
+        } catch (\Exception $e) {
+            $this->logger->logError('Department.get API exception (SDK)', [
+                'exception' => $e->getMessage()
+            ]);
+            return [];
         }
-        
-        return $departments;
     }
     
     /**
@@ -342,73 +303,70 @@ class Bitrix24ApiService
             return [];
         }
         
-        $url = 'https://' . $domain . '/rest/user.get.json';
-        
-        $requestParams = ['auth' => $authId];
+        $params = [];
         
         // Если есть поисковый запрос — добавляем фильтр
         if ($search) {
-            $requestParams['filter'] = [
+            $params['filter'] = [
                 'NAME' => '%' . $search . '%',
                 'EMAIL' => '%' . $search . '%'
             ];
         }
         
-        $params = http_build_query($requestParams);
-        
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-        
-        $result = null;
-        
-        if ($curlError || $httpCode !== 200) {
-            // Пробуем через Bitrix24Client (токен установщика)
-            try {
-                $result = $this->client->call('user.get', $search ? ['filter' => $requestParams['filter']] : []);
-            } catch (Bitrix24ApiException $e) {
-                $this->logger->logError('User.get API error (fallback)', [
-                    'error' => $e->getApiError(),
-                    'error_description' => $e->getApiErrorDescription()
-                ]);
-                return [];
-            }
-        } else {
-            $result = json_decode($response, true);
-        }
-        
-        if (isset($result['error']) || !isset($result['result'])) {
-            return [];
-        }
-        
-        $users = [];
-        $resultData = $result['result'];
-        
-        // Обработка структуры ответа
-        if (is_array($resultData)) {
-            foreach ($resultData as $user) {
-                if (is_array($user) && isset($user['ID'])) {
-                    $users[] = [
-                        'id' => (int)$user['ID'],
-                        'name' => trim(($user['NAME'] ?? '') . ' ' . ($user['LAST_NAME'] ?? '')),
-                        'email' => $user['EMAIL'] ?? null
-                    ];
+        try {
+            // Инициализируем клиент с токеном пользователя
+            $this->client->initializeWithUserToken($authId, $domain);
+            
+            // Вызываем через SDK
+            $result = $this->client->call('user.get', $params);
+            
+            if (isset($result['error']) || !isset($result['result'])) {
+                // Fallback: пробуем через токен установщика
+                try {
+                    $this->client->initializeWithInstallerToken();
+                    $result = $this->client->call('user.get', $params);
+                } catch (Bitrix24ApiException $e) {
+                    $this->logger->logError('User.get API error (fallback)', [
+                        'error' => $e->getApiError(),
+                        'error_description' => $e->getApiErrorDescription()
+                    ]);
+                    return [];
                 }
             }
+            
+            if (isset($result['error']) || !isset($result['result'])) {
+                return [];
+            }
+            
+            $users = [];
+            $resultData = $result['result'];
+            
+            // Обработка структуры ответа
+            if (is_array($resultData)) {
+                foreach ($resultData as $user) {
+                    if (is_array($user) && isset($user['ID'])) {
+                        $users[] = [
+                            'id' => (int)$user['ID'],
+                            'name' => trim(($user['NAME'] ?? '') . ' ' . ($user['LAST_NAME'] ?? '')),
+                            'email' => $user['EMAIL'] ?? null
+                        ];
+                    }
+                }
+            }
+            
+            return $users;
+        } catch (Bitrix24ApiException $e) {
+            $this->logger->logError('User.get API exception (SDK)', [
+                'error' => $e->getApiError(),
+                'error_description' => $e->getApiErrorDescription()
+            ]);
+            return [];
+        } catch (\Exception $e) {
+            $this->logger->logError('User.get API exception (SDK)', [
+                'exception' => $e->getMessage()
+            ]);
+            return [];
         }
-        
-        return $users;
     }
     
     /**
@@ -431,7 +389,7 @@ class Bitrix24ApiService
                     return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
                 }
             } catch (\Exception $e) {
-                $this->logger->logError('Error checking admin status with installer token', [
+                $this->logger->logError('Error checking admin status with installer token (SDK)', [
                     'exception' => $e->getMessage()
                 ]);
             }
@@ -442,40 +400,38 @@ class Bitrix24ApiService
             return false;
         }
         
-        $url = 'https://' . $domain . '/rest/user.admin.json';
-        $params = http_build_query(['auth' => $authId]);
-        
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($httpCode === 200) {
-            $result = json_decode($response, true);
+        try {
+            // Инициализируем клиент с токеном пользователя
+            $this->client->initializeWithUserToken($authId, $domain);
+            
+            // Вызываем через SDK
+            $result = $this->client->call('user.admin', []);
+            
             if (isset($result['result'])) {
                 return ($result['result'] === true || $result['result'] === 'true' || $result['result'] == 1);
             }
-        }
-        
-        // Fallback: через Bitrix24Client
-        try {
-            $adminCheckResult = $this->client->call('user.admin', []);
-            if (isset($adminCheckResult['result'])) {
-                return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
+            
+            // Fallback: через токен установщика
+            try {
+                $this->client->initializeWithInstallerToken();
+                $adminCheckResult = $this->client->call('user.admin', []);
+                if (isset($adminCheckResult['result'])) {
+                    return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
+                }
+            } catch (Bitrix24ApiException $e) {
+                $this->logger->logError('User.admin API error (fallback)', [
+                    'error' => $e->getApiError(),
+                    'error_description' => $e->getApiErrorDescription()
+                ]);
             }
         } catch (Bitrix24ApiException $e) {
-            $this->logger->logError('User.admin API error (fallback)', [
+            $this->logger->logError('User.admin API exception (SDK)', [
                 'error' => $e->getApiError(),
                 'error_description' => $e->getApiErrorDescription()
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->logError('User.admin API exception (SDK)', [
+                'exception' => $e->getMessage()
             ]);
         }
         

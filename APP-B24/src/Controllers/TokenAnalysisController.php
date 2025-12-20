@@ -11,8 +11,6 @@ use App\Services\AuthService;
 use App\Helpers\DomainResolver;
 use App\Helpers\AdminChecker;
 
-require_once(__DIR__ . '/../../crest.php');
-
 /**
  * Контроллер страницы анализа токена
  * 
@@ -124,7 +122,7 @@ class TokenAnalysisController extends BaseController
         
         // Анализ токена
         if (empty($authId)) {
-            // Если токен не передан в параметрах, пробуем использовать токен установщика через CRest
+            // Если токен не передан в параметрах, пробуем использовать токен установщика через SDK
             $settingsFile = __DIR__ . '/../../settings.json';
             if (file_exists($settingsFile)) {
                 $settingsContent = file_get_contents($settingsFile);

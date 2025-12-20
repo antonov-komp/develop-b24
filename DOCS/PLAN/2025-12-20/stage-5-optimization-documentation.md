@@ -378,3 +378,4 @@ $user = $apiService->getCurrentUser($authId, $domain);
 **Дата создания:** 2025-12-20 20:30 (UTC+3, Брест)
 
 
+

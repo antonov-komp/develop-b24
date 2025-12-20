@@ -11,8 +11,6 @@ use App\Services\AuthService;
 use App\Helpers\DomainResolver;
 use App\Helpers\AdminChecker;
 
-require_once(__DIR__ . '/../../crest.php');
-
 /**
  * Контроллер главной страницы
  * 
@@ -156,8 +154,8 @@ class IndexController extends BaseController
         
         $this->logger->logConfigCheck('ACCESS GRANTED: Auth and config checks passed, showing interface');
         
-        // Подключаем CREST для работы с Bitrix24 API
-        $this->logger->logConfigCheck('CREST loaded successfully');
+        // SDK клиент уже инициализирован в bootstrap.php
+        $this->logger->logConfigCheck('SDK client ready for Bitrix24 API calls');
         
         // Получение токена текущего пользователя из параметров запроса
         $currentUserAuthId = $this->getRequestParam('AUTH_ID');
@@ -333,7 +331,7 @@ class IndexController extends BaseController
             // ВАЖНО: Токен может не иметь прав на department.get
             // Пробуем получить название, но если ошибка - просто показываем ID
             if ($departmentId > 0) {
-                // Пробуем получить название отдела через токен установщика (CRest)
+                // Пробуем получить название отдела через токен установщика (SDK)
                 // Метод: department.get
                 // Документация: https://context7.com/bitrix24/rest/department.get
                 try {

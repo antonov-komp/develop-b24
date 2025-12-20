@@ -2,8 +2,6 @@
 
 namespace App\Services;
 
-require_once(__DIR__ . '/../../crest.php');
-
 /**
  * Сервис для проверки авторизации Bitrix24
  * 
@@ -84,7 +82,7 @@ class AuthService
             if (isset($testResult['error'])) {
                 // Исключение: expired_token - токен можно обновить автоматически
                 if ($testResult['error'] === 'expired_token') {
-                    // Bitrix24Client автоматически обновит токен при следующем запросе
+                    // Bitrix24SdkClient автоматически обновит токен при следующем запросе
                     // Проверяем ещё раз после обновления
                     $refreshResult = $this->apiService->call('profile');
                     if (isset($refreshResult['error']) && 

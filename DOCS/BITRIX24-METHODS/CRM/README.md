@@ -351,3 +351,4 @@ function linkContactToDeal(int $contactId, int $dealId): bool
 
 - 2025-12-20 19:09 (UTC+3, Брест): Создана документация по CRM-методам
 
+

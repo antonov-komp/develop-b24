@@ -10,8 +10,6 @@ use App\Services\AccessControlService;
 use App\Services\AuthService;
 use App\Helpers\DomainResolver;
 
-require_once(__DIR__ . '/../../crest.php');
-
 /**
  * Контроллер страницы управления правами доступа
  * 

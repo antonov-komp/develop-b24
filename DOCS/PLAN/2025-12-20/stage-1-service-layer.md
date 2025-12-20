@@ -517,3 +517,4 @@ $hasAccess = $accessService->checkUserAccess($userId, $departments, $authId, $do
 **Дата создания:** 2025-12-20 20:30 (UTC+3, Брест)
 
 
+

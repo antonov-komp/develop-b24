@@ -17,7 +17,8 @@
 
 ### Backend
 - **Язык:** PHP 8.4+
-- **Библиотека:** CRest (для работы с Bitrix24 REST API)
+- **Библиотека:** [b24phpsdk](https://github.com/bitrix24/b24phpsdk) — официальный PHP SDK для Bitrix24 REST API
+- **Менеджер зависимостей:** Composer
 - **Структура:** Модульная архитектура
 
 ### Frontend
@@ -38,14 +39,18 @@
   - `profile` — профиль пользователя
   - И другие методы согласно документации
 
-### Библиотека CRest
-- **Назначение:** Упрощение работы с Bitrix24 REST API
-- **Файл:** `APP-B24/crest.php`
+### Библиотека b24phpsdk
+- **Назначение:** Официальный PHP SDK для работы с Bitrix24 REST API
+- **Установка:** Через Composer (`composer install`)
 - **Использование:**
   ```php
-  require_once (__DIR__.'/crest.php');
-  $result = CRest::call('profile', []);
+  use App\Clients\Bitrix24SdkClient;
+  
+  $client = new Bitrix24SdkClient($logger);
+  $client->initializeWithInstallerToken();
+  $result = $client->call('user.current', []);
   ```
+- **Документация:** https://github.com/bitrix24/b24phpsdk
 
 ---
 
@@ -60,12 +65,12 @@
 │   ├── access-config.json             # Конфигурация прав доступа
 │   ├── config.json                    # Конфигурация доступа к главной странице
 │   ├── config-error.php               # Страница ошибки при деактивации интерфейса
-│   ├── crest.php                      # Библиотека CRest для работы с Bitrix24 REST API
+│   ├── composer.json                   # Конфигурация Composer
+│   ├── vendor/                         # Зависимости (b24phpsdk)
 │   ├── failure.php                    # Страница ошибки доступа
 │   ├── index.php                      # Главная страница приложения
 │   ├── install.php                    # Страница установки приложения
 │   ├── settings.json                  # Настройки приложения (токены, домен)
-│   ├── settings.php                   # PHP-обертка для settings.json
 │   ├── token-analysis.php             # Страница анализа токена и прав доступа
 │   └── logs/                          # Логи приложения
 │       ├── access-check-*.log         # Логи проверки прав доступа
@@ -88,9 +93,10 @@
 ## Ограничения и особенности
 
 ### Безопасность
-- Секреты хранятся в `settings.php` (не коммитить в Git)
+- Секреты хранятся в `settings.json` (не коммитить в Git)
 - Использовать переменные окружения для продакшена
 - Валидация всех входящих данных
+- Использование официального SDK для работы с API
 
 ### Логирование
 - Логи сохраняются в `APP-B24/logs/`
@@ -114,7 +120,9 @@
   - `openssl` — для SSL-соединений
 
 ### Внешние библиотеки
-- CRest — библиотека для работы с Bitrix24 REST API
+- **b24phpsdk** — официальный PHP SDK для Bitrix24 REST API
+  - Установка: `composer require bitrix24/b24phpsdk`
+  - Версия: ^1.0
 
 ---
 

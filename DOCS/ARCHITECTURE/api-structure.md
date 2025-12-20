@@ -8,7 +8,7 @@
 
 ## Общая концепция
 
-Приложение использует **Bitrix24 REST API** для работы с данными. Все запросы выполняются через библиотеку CRest.
+Приложение использует **Bitrix24 REST API** для работы с данными. Все запросы выполняются через официальный SDK **b24phpsdk** через клиент `Bitrix24SdkClient`.
 
 ---
 
@@ -18,9 +18,10 @@
 - **Путь:** `APP-B24/index.php`
 - **Назначение:** Точка входа для выполнения API-запросов
 
-### Библиотека CRest
-- **Путь:** `APP-B24/crest.php`
-- **Метод:** `CRest::call($method, $params)`
+### Библиотека b24phpsdk
+- **Клиент:** `App\Clients\Bitrix24SdkClient`
+- **Метод:** `$client->call($method, $params)`
+- **Документация:** https://github.com/bitrix24/b24phpsdk
 
 ---
 
@@ -28,7 +29,14 @@
 
 ### Формат запроса
 ```php
-$result = CRest::call(
+use App\Clients\Bitrix24SdkClient;
+use App\Services\LoggerService;
+
+$logger = new LoggerService();
+$client = new Bitrix24SdkClient($logger);
+$client->initializeWithInstallerToken();
+
+$result = $client->call(
     'method_name',           // Метод Bitrix24 REST API
     [                        // Параметры запроса
         'filter' => [...],
