@@ -226,6 +226,24 @@ APP-B24/
 - **Размер JavaScript бандла:** < 100 KB (gzipped)
 - **Размер CSS бандла:** < 20 KB (gzipped)
 
+**Детали измерения:**
+- Использовать Chrome DevTools Network tab
+- Измерять на медленном 3G соединении (throttling)
+- Проверять First Contentful Paint (FCP)
+- Проверять Largest Contentful Paint (LCP)
+
+**Инструменты для проверки:**
+```bash
+# Проверка размера бандла
+cd APP-B24/frontend
+npm run build
+du -sh public/dist/assets/*.js
+du -sh public/dist/assets/*.css
+
+# Проверка с gzip
+gzip -c public/dist/assets/main.js | wc -c
+```
+
 ### Пользовательский опыт
 
 - **Интерактивность:** Все действия без перезагрузки страницы
@@ -239,6 +257,40 @@ APP-B24/
 - **Время сборки production:** < 30 секунд
 - **Покрытие тестами:** > 80% (целевой показатель)
 - **Качество кода:** ESLint без ошибок
+
+**Детали сборки:**
+```bash
+# Development сборка
+cd APP-B24/frontend
+time npm run dev
+# Ожидаемое время: < 5 секунд
+
+# Production сборка
+time npm run build
+# Ожидаемое время: < 30 секунд
+```
+
+**Проверка качества кода:**
+```bash
+# ESLint проверка
+npm run lint
+
+# Prettier форматирование
+npm run format
+
+# TypeScript проверка (если используется)
+npm run type-check
+```
+
+**Покрытие тестами:**
+```bash
+# Запуск тестов
+npm run test
+
+# Покрытие тестами
+npm run test:coverage
+# Ожидаемое покрытие: > 80%
+```
 
 ---
 
@@ -376,9 +428,124 @@ APP-B24/
 
 ---
 
+## Детали интеграции с Bitrix24
+
+### Работа внутри iframe
+
+**Особенности:**
+- Приложение загружается внутри iframe Bitrix24
+- Параметры `AUTH_ID` и `DOMAIN` передаются через URL
+- BX.* API доступен только внутри iframe
+
+**Проверка окружения:**
+```javascript
+// Проверка, что приложение внутри Bitrix24
+const isInBitrix24 = typeof BX !== 'undefined' && 
+                     window.self !== window.top;
+
+if (isInBitrix24) {
+  // Используем BX.* API
+} else {
+  // Fallback для внешнего доступа
+}
+```
+
+### Обработка параметров авторизации
+
+**Получение параметров:**
+```javascript
+// Из URL параметров
+const urlParams = new URLSearchParams(window.location.search);
+const authId = urlParams.get('AUTH_ID');
+const domain = urlParams.get('DOMAIN');
+
+// Из hash (если используется)
+const hashParams = new URLSearchParams(window.location.hash.substring(1));
+const authIdFromHash = hashParams.get('AUTH_ID');
+```
+
+**Валидация параметров:**
+```javascript
+function validateAuthParams(authId, domain) {
+  if (!authId || authId.length < 10) {
+    throw new Error('Invalid AUTH_ID');
+  }
+  
+  if (!domain || !domain.includes('bitrix24')) {
+    throw new Error('Invalid DOMAIN');
+  }
+  
+  return true;
+}
+```
+
+### Интеграция с Bitrix24 UI
+
+**Использование уведомлений:**
+```javascript
+import { useBitrix24 } from './utils/bitrix24';
+
+const { showNotification } = useBitrix24();
+
+// Показ уведомления
+showNotification('Операция выполнена успешно', 'success');
+showNotification('Произошла ошибка', 'error');
+```
+
+**Использование попапов:**
+```javascript
+const { showPopup } = useBitrix24();
+
+const popup = showPopup('<div>Содержимое попапа</div>', {
+  width: 600,
+  height: 400,
+  title: 'Заголовок'
+});
+```
+
+---
+
+## Детали производительности
+
+### Оптимизация загрузки
+
+**Code Splitting:**
+```javascript
+// Ленивая загрузка компонентов
+const IndexPage = () => import('./components/IndexPage.vue');
+const AccessControlPage = () => import('./components/AccessControlPage.vue');
+```
+
+**Preloading критических ресурсов:**
+```html
+<link rel="preload" href="/assets/main.js" as="script">
+<link rel="preload" href="/assets/main.css" as="style">
+```
+
+**Кеширование:**
+- Настроить кеширование статических ресурсов на сервере
+- Использовать Service Worker для офлайн работы (опционально)
+
+### Мониторинг производительности
+
+**Инструменты:**
+- Chrome DevTools Performance
+- Lighthouse
+- Web Vitals
+
+**Метрики для отслеживания:**
+- First Contentful Paint (FCP)
+- Largest Contentful Paint (LCP)
+- Time to Interactive (TTI)
+- Total Blocking Time (TBT)
+- Cumulative Layout Shift (CLS)
+
+---
+
 ## История правок
 
 - **2025-12-20 19:38 (UTC+3, Брест):** Создан документ с описанием ожидаемого результата рефакторинга
+- **2025-12-20 20:20 (UTC+3, Брест):** Добавлены детали интеграции с Bitrix24, детали производительности, детали мониторинга
 
 ---
 

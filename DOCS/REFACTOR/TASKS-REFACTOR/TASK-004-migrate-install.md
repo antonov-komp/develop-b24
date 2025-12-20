@@ -116,14 +116,90 @@
    }
    ```
 
-3. **Добавить обработку ошибок:**
-   - Валидация входных данных
-   - Проверка прав на запись файла
-   - Обработка ошибок JSON
+3. **Добавить обработку ошибок с детальной валидацией:**
+   ```php
+   // Обработка установки приложения
+   if ($_REQUEST['event'] == 'ONAPPINSTALL' && !empty($_REQUEST['auth'])) {
+       try {
+           $auth = $_REQUEST['auth'];
+           
+           // Валидация данных
+           if (empty($auth['access_token']) || empty($auth['domain'])) {
+               throw new \Exception('Missing required fields: access_token or domain');
+           }
+           
+           // Очистка домена от протокола
+           $domain = preg_replace('#^https?://#', '', $auth['domain']);
+           $domain = rtrim($domain, '/');
+           
+           // Сохранение настроек
+           $settings = [
+               'access_token' => $auth['access_token'],
+               'expires_in' => $auth['expires_in'] ?? 3600,
+               'application_token' => $auth['application_token'] ?? '',
+               'refresh_token' => $auth['refresh_token'] ?? '',
+               'domain' => $domain,
+               'client_endpoint' => 'https://' . $domain . '/rest/',
+               'installed_at' => date('Y-m-d H:i:s'),
+               'installed_by' => 'ONAPPINSTALL'
+           ];
+           
+           $settingsFile = __DIR__ . '/settings.json';
+           $settingsDir = dirname($settingsFile);
+           
+           // Проверка прав на запись
+           if (!is_writable($settingsDir)) {
+               throw new \Exception('Settings directory is not writable: ' . $settingsDir);
+           }
+           
+           // Сохранение с блокировкой файла
+           $result = file_put_contents(
+               $settingsFile,
+               json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+               LOCK_EX
+           );
+           
+           if ($result === false) {
+               throw new \Exception('Failed to write settings.json');
+           }
+           
+           // Установка прав доступа
+           chmod($settingsFile, 0600);
+           
+           // Логирование успешной установки
+           if (isset($logger)) {
+               $logger->log('Application installed via ONAPPINSTALL', [
+                   'domain' => $domain,
+                   'token_length' => strlen($auth['access_token'])
+               ], 'info');
+           }
+           
+           echo json_encode([
+               'rest_only' => true,
+               'install' => true,
+               'domain' => $domain
+           ]);
+           exit;
+           
+       } catch (\Exception $e) {
+           // Логирование ошибки
+           error_log('Install error (ONAPPINSTALL): ' . $e->getMessage());
+           
+           http_response_code(500);
+           echo json_encode([
+               'rest_only' => true,
+               'install' => false,
+               'error' => $e->getMessage()
+           ]);
+           exit;
+       }
+   }
+   ```
 
 4. **Добавить логирование:**
-   - Логирование успешной установки
-   - Логирование ошибок
+   - Логирование успешной установки с деталями
+   - Логирование ошибок с контекстом
+   - Использование LoggerService если доступен
 
 ### 4. Обновление шаблона установки
 
@@ -225,30 +301,115 @@ cat APP-B24/settings.json
 
 ---
 
+## Troubleshooting (Решение проблем)
+
+### Проблема 1: Ошибка "Settings directory is not writable"
+**Симптомы:**
+```
+Exception: Settings directory is not writable: /path/to/APP-B24
+```
+
+**Решение:**
+1. Проверить права доступа к директории: `ls -la APP-B24/`
+2. Установить права на запись: `chmod 755 APP-B24/`
+3. Проверить владельца директории: `ls -ld APP-B24/`
+4. Установить правильного владельца: `chown www-data:www-data APP-B24/` (или другого пользователя веб-сервера)
+
+### Проблема 2: Ошибка "Failed to write settings.json"
+**Симптомы:**
+```
+Exception: Failed to write settings.json
+```
+
+**Решение:**
+1. Проверить права на запись файла
+2. Проверить свободное место на диске: `df -h`
+3. Проверить, не заблокирован ли файл другим процессом
+4. Проверить логи PHP на детали ошибки
+
+### Проблема 3: Неправильный формат settings.json
+**Симптомы:**
+```
+Ошибки при чтении settings.json после установки
+```
+
+**Решение:**
+1. Проверить валидность JSON: `php -r "json_decode(file_get_contents('settings.json'));"`
+2. Проверить кодировку файла (должна быть UTF-8)
+3. Проверить использование `JSON_UNESCAPED_UNICODE` при сохранении
+4. Проверить структуру данных перед сохранением
+
+### Проблема 4: Ошибка валидации домена
+**Симптомы:**
+```
+Invalid domain format
+```
+
+**Решение:**
+1. Проверить формат домена (должен быть без протокола)
+2. Проверить очистку домена от протокола и слешей
+3. Проверить валидацию формата Bitrix24 домена
+
 ## Риски и митигация
 
 ### Риск 1: Несовместимость формата settings.json
-**Митигация:** Проверка совместимости с текущим форматом, тестирование
+**Митигация:** 
+- Проверка совместимости с текущим форматом
+- Сохранение всех существующих полей
+- Тестирование чтения settings.json после установки
+- Резервное копирование перед изменениями
 
 ### Риск 2: Проблемы с правами доступа
-**Митигация:** Проверка прав на запись файла, обработка ошибок
+**Митигация:** 
+- Проверка прав на запись файла перед сохранением
+- Обработка ошибок с понятными сообщениями
+- Логирование ошибок для диагностики
+- Установка правильных прав доступа (0600 для файла)
 
 ### Риск 3: Потеря данных при установке
-**Митигация:** Резервное копирование перед изменениями, валидация данных
+**Митигация:** 
+- Резервное копирование settings.json перед изменениями
+- Валидация всех входных данных
+- Проверка структуры данных перед сохранением
+- Использование блокировки файла (LOCK_EX) при записи
 
 ---
+
+## Дополнительные детали
+
+### Важные замечания
+
+**1. Безопасность:**
+- Всегда валидировать входные данные
+- Использовать `htmlspecialchars()` для экранирования
+- Проверять права доступа перед записью
+- Устанавливать правильные права доступа (0600 для settings.json)
+
+**2. Обработка ошибок:**
+- Всегда использовать try-catch
+- Логировать все ошибки
+- Возвращать понятные сообщения об ошибках
+- Использовать правильные HTTP статус коды
+
+**3. Формат данных:**
+- Сохранять все необходимые поля для совместимости
+- Использовать `JSON_PRETTY_PRINT` для читаемости
+- Использовать `JSON_UNESCAPED_UNICODE` для кириллицы
+- Добавлять метаданные (installed_at, installed_by)
 
 ## История правок
 
 - **2025-12-20 19:48 (UTC+3, Брест):** Создана задача на миграцию установки
+- **2025-12-20 20:25 (UTC+3, Брест):** Добавлены детали валидации, обработки ошибок, troubleshooting секция
 
 ---
 
 **Связанные документы:**
 - [TASK-000-crest-to-b24phpsdk-overview.md](TASK-000-crest-to-b24phpsdk-overview.md) — обзор миграции
+- [DOCS/REFACTOR/crest-to-b24phpsdk-migration.md](../../crest-to-b24phpsdk-migration.md) — детальный план
 
 ---
 
-**Версия документа:** 1.0  
-**Последнее обновление:** 2025-12-20 19:48 (UTC+3, Брест)
+**Версия документа:** 1.1  
+**Последнее обновление:** 2025-12-20 20:25 (UTC+3, Брест)
 
