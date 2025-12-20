@@ -1,5 +1,5 @@
 # Защита конфигурационных файлов от прямого доступа
-<FilesMatch "^(config\.json|settings\.json)$">
+<FilesMatch "^(config\.json|settings\.json|settings\.php)$">
     Order allow,deny
     Deny from all
 </FilesMatch>
