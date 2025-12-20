@@ -10,151 +10,8 @@
 
 require_once(__DIR__ . '/auth-check.php');
 
-/**
- * Логирование проверки конфига
- * 
- * @param string $message Сообщение для логирования
- * @param array|null $context Дополнительный контекст (user_id, domain и т.д.)
- */
-function logConfigCheck($message, $context = null) {
-	$logFile = __DIR__ . '/logs/config-check-' . date('Y-m-d') . '.log';
-	$logEntry = date('Y-m-d H:i:s') . ' - ' . $message;
-	
-	if ($context && is_array($context)) {
-		$logEntry .= ', ' . json_encode($context, JSON_UNESCAPED_UNICODE);
-	}
-	
-	$logEntry .= "\n";
-	@file_put_contents($logFile, $logEntry, FILE_APPEND);
-}
-
-/**
- * Проверка конфигурации доступа к главной странице
- * 
- * Читает config.json и проверяет, включен ли интерфейс приложения.
- * При ошибках чтения/парсинга использует безопасный режим (enabled: true).
- * 
- * @return array Результат проверки конфига
- *   - 'enabled' (bool) — доступен ли интерфейс
- *   - 'message' (string|null) — сообщение при деактивации
- *   - 'last_updated' (string|null) — дата последнего обновления
- */
-function checkIndexPageConfig() {
-	$configFile = __DIR__ . '/config.json';
-	$defaultConfig = [
-		'enabled' => true,
-		'message' => null,
-		'last_updated' => null
-	];
-	
-	// Получаем информацию о пользователе для логирования
-	$userId = $_REQUEST['AUTH_ID'] ?? 'unknown';
-	$domain = $_REQUEST['DOMAIN'] ?? 'unknown';
-	$context = [
-		'user_id' => $userId !== 'unknown' ? substr($userId, 0, 20) . '...' : 'unknown',
-		'domain' => $domain
-	];
-	
-	// Если файл отсутствует — используем значения по умолчанию
-	if (!file_exists($configFile)) {
-		logConfigCheck('CONFIG CHECK ERROR: Config file not found, using default (enabled=true)', $context);
-		return $defaultConfig;
-	}
-	
-	// Читаем файл конфига
-	$configContent = @file_get_contents($configFile);
-	if ($configContent === false) {
-		logConfigCheck('CONFIG CHECK ERROR: Failed to read config.json, using default (enabled=true)', $context);
-		return $defaultConfig;
-	}
-	
-	// Парсим JSON
-	$config = @json_decode($configContent, true);
-	if (json_last_error() !== JSON_ERROR_NONE) {
-		logConfigCheck('CONFIG CHECK ERROR: Failed to parse config.json: ' . json_last_error_msg() . ', using default (enabled=true)', $context);
-		return $defaultConfig;
-	}
-	
-	// Проверяем наличие секции index_page
-	if (!isset($config['index_page']) || !is_array($config['index_page'])) {
-		logConfigCheck('CONFIG CHECK ERROR: Section "index_page" not found in config.json, using default (enabled=true)', $context);
-		return $defaultConfig;
-	}
-	
-	$indexPageConfig = $config['index_page'];
-	
-	// Проверяем значение enabled
-	$enabled = isset($indexPageConfig['enabled']) 
-		? (bool)$indexPageConfig['enabled'] 
-		: true; // По умолчанию включено
-	
-	$message = $indexPageConfig['message'] ?? null;
-	$lastUpdated = $indexPageConfig['last_updated'] ?? null;
-	
-	// Логируем результат проверки
-	$logMessage = sprintf(
-		'CONFIG CHECK: enabled=%s, message=%s, last_updated=%s',
-		$enabled ? 'true' : 'false',
-		$message ? '"' . $message . '"' : 'null',
-		$lastUpdated ?? 'null'
-	);
-	logConfigCheck($logMessage, $context);
-	
-	return [
-		'enabled' => $enabled,
-		'message' => $message,
-		'last_updated' => $lastUpdated
-	];
-}
-
-/**
- * Проверка, идет ли запрос из Bitrix24 (через iframe)
- * 
- * @return bool true если запрос из Bitrix24, false если прямой доступ
- */
-function isRequestFromBitrix24() {
-	// Проверка 1: наличие параметров, которые Bitrix24 передаёт при открытии приложения
-	if (
-		(isset($_REQUEST['DOMAIN']) && !empty($_REQUEST['DOMAIN'])) ||
-		(isset($_REQUEST['AUTH_ID']) && !empty($_REQUEST['AUTH_ID'])) ||
-		(isset($_REQUEST['APP_SID']) && !empty($_REQUEST['APP_SID']))
-	) {
-		return true;
-	}
-	
-	// Проверка 2: Referer header указывает на домен Bitrix24
-	if (isset($_SERVER['HTTP_REFERER'])) {
-		$referer = $_SERVER['HTTP_REFERER'];
-		// Проверяем, что Referer содержит домен Bitrix24
-		$settingsFile = __DIR__ . '/settings.json';
-		if (file_exists($settingsFile)) {
-			$settingsContent = file_get_contents($settingsFile);
-			$settings = json_decode($settingsContent, true);
-			if (isset($settings['domain']) && !empty($settings['domain'])) {
-				$bitrixDomain = $settings['domain'];
-				if (strpos($referer, $bitrixDomain) !== false || 
-					strpos($referer, 'bitrix24') !== false ||
-					strpos($referer, 'marketplace') !== false) {
-					return true;
-				}
-			}
-		}
-		// Также проверяем общие паттерны Bitrix24
-		if (strpos($referer, 'bitrix24') !== false || strpos($referer, 'marketplace') !== false) {
-			return true;
-		}
-	}
-	
-	// Проверка 3: User-Agent может содержать информацию о Bitrix24
-	if (isset($_SERVER['HTTP_USER_AGENT'])) {
-		$userAgent = $_SERVER['HTTP_USER_AGENT'];
-		if (stripos($userAgent, 'bitrix') !== false) {
-			return true;
-		}
-	}
-	
-	return false;
-}
+// Подключение и инициализация сервисов
+require_once(__DIR__ . '/src/bootstrap.php');
 
 /**
  * Показ страницы ошибки конфига
@@ -176,7 +33,6 @@ function showConfigErrorPage($message, $lastUpdated = null) {
 	}
 	
 	// Добавляем параметры
-	// http_build_query() автоматически кодирует параметры, поэтому urlencode() не нужен
 	$params = [];
 	if ($message) {
 		$params['message'] = $message;
@@ -205,80 +61,56 @@ function showConfigErrorPage($message, $lastUpdated = null) {
 	exit;
 }
 
-// Проверка авторизации Bitrix24
-$authResult = checkBitrix24Auth();
-if (!$authResult) {
-	logConfigCheck('AUTH CHECK FAILED: Redirecting to failure.php');
-	redirectToFailure();
-}
-
+// Проверка авторизации Bitrix24 (уже выполнена в auth-check.php)
 // Проверка, идет ли запрос из Bitrix24 (через iframe)
-$isFromBitrix24 = isRequestFromBitrix24();
+$isFromBitrix24 = $authService->isRequestFromBitrix24();
 
 // Проверка конфигурации доступа к главной странице
 // ВАЖНО: Если запрос идет из Bitrix24 (iframe) - всегда разрешаем доступ, проверка конфига не нужна
 // Если запрос прямой (прямой URL) - проверяем конфиг, и если enabled: true, то разрешаем
 if (!$isFromBitrix24) {
 	// Прямой доступ - проверяем конфиг
-	$indexConfig = checkIndexPageConfig();
+	$indexConfig = $configService->getIndexPageConfig();
 	if (!$indexConfig['enabled']) {
-		logConfigCheck('CONFIG CHECK FAILED: enabled=false, redirecting to config-error.php (direct access)');
+		$logger->logConfigCheck('CONFIG CHECK FAILED: enabled=false, redirecting to config-error.php (direct access)');
 		showConfigErrorPage(
 			$indexConfig['message'] ?? 'Интерфейс приложения временно недоступен.',
 			$indexConfig['last_updated'] ?? null
 		);
 		exit;
 	}
-	logConfigCheck('CONFIG CHECK PASSED: enabled=true (direct access allowed)');
+	$logger->logConfigCheck('CONFIG CHECK PASSED: enabled=true (direct access allowed)');
 } else {
 	// Запрос из Bitrix24 - всегда разрешаем, проверка конфига не нужна
-	logConfigCheck('CONFIG CHECK SKIPPED: Request from Bitrix24 iframe, always allowed');
+	$logger->logConfigCheck('CONFIG CHECK SKIPPED: Request from Bitrix24 iframe, always allowed');
 }
 
 // Проверка прав доступа (если включена)
-require_once(__DIR__ . '/access-control-functions.php');
-$accessConfig = getAccessConfig();
+$accessConfig = $configService->getAccessConfig();
 if ($accessConfig['access_control']['enabled']) {
 	// Получаем данные текущего пользователя
 	$currentUserAuthId = $_REQUEST['AUTH_ID'] ?? null;
-	$portalDomain = $_REQUEST['DOMAIN'] ?? null;
-	
-	// Получаем домен из settings.json, если не передан в запросе
-	if (!$portalDomain) {
-		$settingsFile = __DIR__ . '/settings.json';
-		if (file_exists($settingsFile)) {
-			$settingsContent = file_get_contents($settingsFile);
-			$settings = json_decode($settingsContent, true);
-			if (isset($settings['domain']) && !empty($settings['domain']) && $settings['domain'] !== 'oauth.bitrix.info') {
-				$portalDomain = $settings['domain'];
-			} elseif (isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
-				if (preg_match('#https?://([^/]+)#', $settings['client_endpoint'], $matches)) {
-					$portalDomain = $matches[1];
-				}
-			}
-		}
-	}
+	$portalDomain = $domainResolver->resolveDomain();
 	
 	if ($currentUserAuthId && $portalDomain && $portalDomain !== 'oauth.bitrix.info') {
 		// Получаем данные пользователя
-		$userResult = getCurrentUserDataForAccess($currentUserAuthId, $portalDomain);
+		$user = $userService->getCurrentUser($currentUserAuthId, $portalDomain);
 		
-		if (!isset($userResult['error']) && isset($userResult['result'])) {
-			$user = $userResult['result'];
-			$userId = $user['ID'] ?? null;
-			$userDepartments = $user['UF_DEPARTMENT'] ?? [];
+		if ($user && isset($user['ID'])) {
+			$userId = $user['ID'];
+			$userDepartments = $userService->getUserDepartments($user);
 			
 			// Проверяем, является ли пользователь администратором
-			$isAdmin = checkIsAdmin($user, $currentUserAuthId, $portalDomain);
+			$isAdmin = $userService->isAdmin($user, $currentUserAuthId, $portalDomain);
 			
 			// Если не администратор — проверяем права доступа
 			if (!$isAdmin) {
-				$hasAccess = checkUserAccess($userId, $userDepartments, $currentUserAuthId, $portalDomain);
+				$hasAccess = $accessControlService->checkUserAccess($userId, $userDepartments, $currentUserAuthId, $portalDomain);
 				
 				if (!$hasAccess) {
 					// Доступ запрещён — редирект на failure.php
-					logConfigCheck('ACCESS DENIED: User does not have access rights');
-					redirectToFailure();
+					$logger->logConfigCheck('ACCESS DENIED: User does not have access rights');
+					$authService->redirectToFailure();
 					exit;
 				}
 			}
@@ -286,290 +118,50 @@ if ($accessConfig['access_control']['enabled']) {
 	}
 }
 
-logConfigCheck('ACCESS GRANTED: Auth and config checks passed, showing interface');
+$logger->logConfigCheck('ACCESS GRANTED: Auth and config checks passed, showing interface');
 
 // Подключаем CREST для работы с Bitrix24 API
 require_once(__DIR__ . '/crest.php');
-logConfigCheck('CREST loaded successfully');
-
-/**
- * Получение данных текущего пользователя через токен из запроса
- * 
- * Bitrix24 передает AUTH_ID в параметрах запроса - это токен текущего пользователя
- * Используем его для получения данных того, кто открыл приложение
- * 
- * @param string $authId Токен текущего пользователя из $_REQUEST['AUTH_ID']
- * @param string $domain Домен портала
- * @return array|null Данные пользователя или null при ошибке
- */
-function getCurrentUserData($authId, $domain) {
-	if (empty($authId) || empty($domain)) {
-		return null;
-	}
-	
-	// Явно запрашиваем поле ADMIN для проверки статуса администратора
-	// Метод: user.current
-	// Документация: https://context7.com/bitrix24/rest/user.current
-	$url = 'https://' . $domain . '/rest/user.current.json';
-	
-	// Формируем параметры - сначала пробуем без select (получим все поля по умолчанию)
-	// Если нужны конкретные поля, можно добавить select позже
-	$requestParams = [
-		'auth' => $authId
-	];
-	
-	$params = http_build_query($requestParams);
-	
-	// Логирование запроса для отладки
-	$requestLog = [
-		'url' => $url,
-		'params' => $params,
-		'auth_length' => strlen($authId),
-		'timestamp' => date('Y-m-d H:i:s')
-	];
-	@file_put_contents(__DIR__ . '/logs/user-current-api-' . date('Y-m-d') . '.log', 
-		date('Y-m-d H:i:s') . ' - REQUEST: ' . json_encode($requestLog, JSON_UNESCAPED_UNICODE) . "\n", 
-		FILE_APPEND);
-	
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_POST, true);
-	curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-	curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-	
-	$response = curl_exec($ch);
-	$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	$curlError = curl_error($ch);
-	$responsePreview = substr($response, 0, 500);
-	curl_close($ch);
-	
-	// Логирование ответа
-	$responseLog = [
-		'http_code' => $httpCode,
-		'curl_error' => $curlError ?: 'none',
-		'response_preview' => $responsePreview,
-		'timestamp' => date('Y-m-d H:i:s')
-	];
-	@file_put_contents(__DIR__ . '/logs/user-current-api-' . date('Y-m-d') . '.log', 
-		date('Y-m-d H:i:s') . ' - RESPONSE: ' . json_encode($responseLog, JSON_UNESCAPED_UNICODE) . "\n", 
-		FILE_APPEND);
-	
-	if ($curlError) {
-		return ['error' => 'curl_error', 'error_description' => $curlError];
-	}
-	
-	if ($httpCode !== 200) {
-		// Для 404 проверяем, может быть это ошибка API, а не HTTP
-		$result = json_decode($response, true);
-		if (isset($result['error'])) {
-			return $result; // Возвращаем ошибку API
-		}
-		return ['error' => 'http_error', 'error_description' => 'HTTP Code: ' . $httpCode . '. Response: ' . $responsePreview];
-	}
-	
-	$result = json_decode($response, true);
-	
-	if (json_last_error() !== JSON_ERROR_NONE) {
-		return ['error' => 'json_error', 'error_description' => json_last_error_msg()];
-	}
-	
-	return $result;
-}
-
-/**
- * Получение данных отдела по ID
- * 
- * Метод: department.get
- * Документация: https://context7.com/bitrix24/rest/department.get
- * 
- * @param int $departmentId ID отдела
- * @param string $authId Токен авторизации
- * @param string $domain Домен портала
- * @return array|null Данные отдела или null при ошибке
- */
-function getDepartmentData($departmentId, $authId, $domain) {
-	if (empty($departmentId) || empty($authId) || empty($domain)) {
-		return null;
-	}
-	
-	$url = 'https://' . $domain . '/rest/department.get.json';
-	// Пробуем разные форматы параметров
-	$params = http_build_query([
-		'auth' => $authId,
-		'ID' => $departmentId  // Используем ID вместо id (может быть чувствительно к регистру)
-	]);
-	
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_POST, true);
-	curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-	curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-	
-	$response = curl_exec($ch);
-	$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	$curlError = curl_error($ch);
-	curl_close($ch);
-	
-	// Логирование для отладки
-	$deptApiLog = [
-		'department_id' => $departmentId,
-		'url' => $url,
-		'http_code' => $httpCode,
-		'curl_error' => $curlError ?: 'none',
-		'response_preview' => substr($response, 0, 500), // Первые 500 символов ответа
-		'timestamp' => date('Y-m-d H:i:s')
-	];
-	@file_put_contents(__DIR__ . '/logs/department-api-' . date('Y-m-d') . '.log', 
-		date('Y-m-d H:i:s') . ' - ' . json_encode($deptApiLog, JSON_UNESCAPED_UNICODE) . "\n", 
-		FILE_APPEND);
-	
-	if ($curlError) {
-		return null;
-	}
-	
-	if ($httpCode !== 200) {
-		return null;
-	}
-	
-	$result = json_decode($response, true);
-	
-	if (json_last_error() !== JSON_ERROR_NONE) {
-		return null;
-	}
-	
-	// Проверяем наличие ошибки в ответе
-	if (isset($result['error'])) {
-		$deptErrorLog = [
-			'department_id' => $departmentId,
-			'error' => $result['error'],
-			'error_description' => $result['error_description'] ?? 'no description',
-			'timestamp' => date('Y-m-d H:i:s')
-		];
-		@file_put_contents(__DIR__ . '/logs/department-api-' . date('Y-m-d') . '.log', 
-			date('Y-m-d H:i:s') . ' - ERROR: ' . json_encode($deptErrorLog, JSON_UNESCAPED_UNICODE) . "\n", 
-			FILE_APPEND);
-		return null;
-	}
-	
-	// Метод department.get возвращает массив отделов в result
-	// Проверяем разные варианты структуры ответа
-	if (isset($result['result']) && is_array($result['result'])) {
-		// Если result - массив отделов
-		if (isset($result['result'][0]) && is_array($result['result'][0])) {
-			return $result['result'][0];
-		}
-		// Если result - один отдел (не массив)
-		if (isset($result['result']['ID']) || isset($result['result']['NAME'])) {
-			return $result['result'];
-		}
-	}
-	
-	return null;
-}
+$logger->logConfigCheck('CREST loaded successfully');
 
 // Получение токена текущего пользователя из параметров запроса
 $currentUserAuthId = $_REQUEST['AUTH_ID'] ?? null;
 
-// Логирование для отладки (можно отключить в продакшене)
+// Логирование для отладки
 $debugLog = [
 	'has_auth_id' => !empty($currentUserAuthId),
 	'auth_id_length' => $currentUserAuthId ? strlen($currentUserAuthId) : 0,
 	'request_params' => array_keys($_REQUEST),
 	'timestamp' => date('Y-m-d H:i:s')
 ];
-@file_put_contents(__DIR__ . '/logs/user-check-' . date('Y-m-d') . '.log', 
-	date('Y-m-d H:i:s') . ' - ' . json_encode($debugLog, JSON_UNESCAPED_UNICODE) . "\n", 
-	FILE_APPEND);
+$logger->log('User check', $debugLog, 'info');
 
-// Получение домена портала
-$settingsFile = __DIR__ . '/settings.json';
-$portalDomain = null;
-
-// Приоритет 1: Домен из параметров запроса (самый надежный)
-if (isset($_REQUEST['DOMAIN']) && !empty($_REQUEST['DOMAIN'])) {
-	$portalDomain = $_REQUEST['DOMAIN'];
-}
-
-// Приоритет 2: Домен из client_endpoint в settings.json
-if (!$portalDomain && file_exists($settingsFile)) {
-	$settingsContent = file_get_contents($settingsFile);
-	$settings = json_decode($settingsContent, true);
-	if (isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
-		// Извлекаем домен из client_endpoint (например, https://develop.bitrix24.by/rest/)
-		$clientEndpoint = $settings['client_endpoint'];
-		if (preg_match('#https?://([^/]+)#', $clientEndpoint, $matches)) {
-			$portalDomain = $matches[1];
-		}
-	}
-}
-
-// Приоритет 3: Домен из settings.json (но проверяем, что это не oauth.bitrix.info)
-if (!$portalDomain && file_exists($settingsFile)) {
-	$settingsContent = file_get_contents($settingsFile);
-	$settings = json_decode($settingsContent, true);
-	if (isset($settings['domain']) && !empty($settings['domain'])) {
-		$domainFromSettings = $settings['domain'];
-		// Игнорируем oauth.bitrix.info - это не домен портала
-		if ($domainFromSettings !== 'oauth.bitrix.info') {
-			$portalDomain = $domainFromSettings;
-		}
-	}
-}
+// Получение домена портала через DomainResolver
+$portalDomain = $domainResolver->resolveDomain();
 
 // Получение данных текущего пользователя
 $user = null;
-$userResult = null;
 $isCurrentUserToken = false; // Флаг: используется ли токен текущего пользователя
 
 if ($currentUserAuthId && $portalDomain) {
 	// Используем токен текущего пользователя для получения его данных
 	$isCurrentUserToken = true;
-	$userResult = getCurrentUserData($currentUserAuthId, $portalDomain);
+	$user = $userService->getCurrentUser($currentUserAuthId, $portalDomain);
 	
-	if (isset($userResult['error'])) {
-		$errorMessage = $userResult['error_description'] ?? $userResult['error'];
-		die('<h1>Ошибка получения данных пользователя</h1><p>' . htmlspecialchars($errorMessage) . '</p>');
+	if (!$user) {
+		die('<h1>Ошибка получения данных пользователя</h1><p>Не удалось получить данные пользователя через API</p>');
 	}
-	
-	$user = $userResult['result'] ?? null;
 	
 	// Если поле ADMIN отсутствует, делаем дополнительный запрос через user.get
 	// Метод: user.get
 	// Документация: https://context7.com/bitrix24/rest/user.get
-	if ($user && !isset($user['ADMIN']) && isset($user['ID'])) {
+	if (!isset($user['ADMIN']) && isset($user['ID'])) {
 		$userId = $user['ID'];
-		$getUserUrl = 'https://' . $portalDomain . '/rest/user.get.json';
-			$getUserParams = http_build_query([
-				'auth' => $currentUserAuthId,
-				'id' => $userId,
-				'select' => ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'ADMIN', 'PERSONAL_PHOTO', 'TIME_ZONE', 'UF_DEPARTMENT']
-			]);
+		$fullUser = $userService->getUserById($userId, $currentUserAuthId, $portalDomain);
 		
-		$ch = curl_init();
-		curl_setopt($ch, CURLOPT_URL, $getUserUrl);
-		curl_setopt($ch, CURLOPT_POST, true);
-		curl_setopt($ch, CURLOPT_POSTFIELDS, $getUserParams);
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-		curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-		
-		$getUserResponse = curl_exec($ch);
-		$getUserHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-		curl_close($ch);
-		
-		if ($getUserHttpCode === 200) {
-			$getUserResult = json_decode($getUserResponse, true);
-			if (isset($getUserResult['result'][0]) && is_array($getUserResult['result'][0])) {
-				// Объединяем данные, приоритет у данных из user.get (там есть ADMIN)
-				$user = array_merge($user, $getUserResult['result'][0]);
-			}
+		if ($fullUser) {
+			// Объединяем данные, приоритет у данных из user.get (там есть ADMIN)
+			$user = array_merge($user, $fullUser);
 		}
 	}
 } else {
@@ -605,95 +197,22 @@ if (!$user || !isset($user['ID'])) {
 
 // Домен портала уже получен выше, используем его или устанавливаем значение по умолчанию
 if (!$portalDomain) {
-	// Если домен не определен, пытаемся получить из settings.json еще раз
-	$settingsFile = __DIR__ . '/settings.json';
-	if (file_exists($settingsFile)) {
-		$settingsContent = file_get_contents($settingsFile);
-		$settings = json_decode($settingsContent, true);
-		if (isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
-			$clientEndpoint = $settings['client_endpoint'];
-			if (preg_match('#https?://([^/]+)#', $clientEndpoint, $matches)) {
-				$portalDomain = $matches[1];
-			}
-		}
-	}
+	$portalDomain = $domainResolver->resolveDomain();
 	
 	// Если все еще не определен, используем значение по умолчанию
 	if (!$portalDomain) {
 		$portalDomain = 'не указан';
-		logConfigCheck('WARNING: Portal domain not found, using default');
+		$logger->logConfigCheck('WARNING: Portal domain not found, using default');
 	}
 }
 
 // Формирование данных пользователя
-$userName = $user['NAME'] ?? '';
-$userLastName = $user['LAST_NAME'] ?? '';
-$userFullName = trim($userName . ' ' . $userLastName);
-if (empty($userFullName)) {
-	$userFullName = 'Пользователь #' . ($user['ID'] ?? 'неизвестен');
-}
+$userFullName = $userService->getUserFullName($user);
 
-// Проверка статуса администратора
-// В Bitrix24 поле ADMIN может быть: 'Y' (да), 'N' (нет), 1 (да), true (да), или отсутствовать
-$isAdmin = false;
+// Проверка статуса администратора через UserService
+$isAdmin = $userService->isAdmin($user, $currentUserAuthId ?? '', $portalDomain ?? '');
 
-// Сначала проверяем поле ADMIN в данных пользователя
-if (isset($user['ADMIN'])) {
-	$adminValue = $user['ADMIN'];
-	// Проверяем различные варианты значения
-	$isAdmin = (
-		$adminValue === 'Y' || 
-		$adminValue === 'y' || 
-		$adminValue == 1 || 
-		$adminValue === 1 || 
-		$adminValue === true ||
-		$adminValue === '1'
-	);
-} else {
-	// Если поле ADMIN отсутствует, проверяем альтернативные поля
-	// В некоторых версиях Bitrix24 может быть поле IS_ADMIN или другие варианты
-	if (isset($user['IS_ADMIN'])) {
-		$isAdmin = ($user['IS_ADMIN'] === 'Y' || $user['IS_ADMIN'] == 1 || $user['IS_ADMIN'] === true);
-	} else {
-		// Если поле ADMIN все еще отсутствует, используем метод user.admin для проверки
-		// Метод: user.admin
-		// Документация: https://context7.com/bitrix24/rest/user.admin
-		$adminCheckResult = null;
-		
-		if ($isCurrentUserToken && $currentUserAuthId && $portalDomain) {
-			// Проверка через токен текущего пользователя
-			$adminCheckUrl = 'https://' . $portalDomain . '/rest/user.admin.json';
-			$adminCheckParams = http_build_query(['auth' => $currentUserAuthId]);
-			
-			$ch = curl_init();
-			curl_setopt($ch, CURLOPT_URL, $adminCheckUrl);
-			curl_setopt($ch, CURLOPT_POST, true);
-			curl_setopt($ch, CURLOPT_POSTFIELDS, $adminCheckParams);
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-			curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-			
-			$adminCheckResponse = curl_exec($ch);
-			$adminCheckHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-			curl_close($ch);
-			
-			if ($adminCheckHttpCode === 200) {
-				$adminCheckResult = json_decode($adminCheckResponse, true);
-			}
-		} else {
-			// Проверка через токен установщика
-			$adminCheckResult = CRest::call('user.admin', []);
-		}
-		
-		// Метод user.admin возвращает true/false в поле result
-		if (isset($adminCheckResult['result'])) {
-			$isAdmin = ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
-		}
-	}
-}
-
-// Логирование для отладки (можно отключить в продакшене)
+// Логирование для отладки
 $adminDebugLog = [
 	'user_id' => $user['ID'] ?? 'unknown',
 	'user_name' => ($user['NAME'] ?? '') . ' ' . ($user['LAST_NAME'] ?? ''),
@@ -704,12 +223,10 @@ $adminDebugLog = [
 	'is_admin_value' => $user['IS_ADMIN'] ?? 'not_set',
 	'is_admin_result' => $isAdmin,
 	'check_method' => isset($user['ADMIN']) ? 'ADMIN_field' : (isset($user['IS_ADMIN']) ? 'IS_ADMIN_field' : 'user.admin_method'),
-	'all_user_fields' => array_keys($user), // Все ключи для отладки
+	'all_user_fields' => array_keys($user),
 	'timestamp' => date('Y-m-d H:i:s')
 ];
-@file_put_contents(__DIR__ . '/logs/admin-check-' . date('Y-m-d') . '.log', 
-	date('Y-m-d H:i:s') . ' - ' . json_encode($adminDebugLog, JSON_UNESCAPED_UNICODE) . "\n", 
-	FILE_APPEND);
+$logger->log('Admin check', $adminDebugLog, 'info');
 
 $adminStatus = $isAdmin ? 'Администратор на портале' : 'Пользователь';
 
@@ -719,10 +236,11 @@ $userPhoto = $user['PERSONAL_PHOTO'] ?? null;
 // Получение данных об отделе пользователя
 $departmentId = null;
 $departmentName = null;
-$departmentData = null;
 
 // Получаем ID отдела из поля UF_DEPARTMENT (массив ID отделов)
-if (isset($user['UF_DEPARTMENT'])) {
+$userDepartments = $userService->getUserDepartments($user);
+
+if (!empty($userDepartments)) {
 	// Логирование для отладки
 	$deptDebugLog = [
 		'user_id' => $user['ID'] ?? 'unknown',
@@ -731,50 +249,27 @@ if (isset($user['UF_DEPARTMENT'])) {
 		'uf_department_value' => $user['UF_DEPARTMENT'] ?? 'not_set',
 		'timestamp' => date('Y-m-d H:i:s')
 	];
-	@file_put_contents(__DIR__ . '/logs/department-check-' . date('Y-m-d') . '.log', 
-		date('Y-m-d H:i:s') . ' - ' . json_encode($deptDebugLog, JSON_UNESCAPED_UNICODE) . "\n", 
-		FILE_APPEND);
+	$logger->log('Department check', $deptDebugLog, 'info');
 	
-	if (is_array($user['UF_DEPARTMENT']) && !empty($user['UF_DEPARTMENT'])) {
-		// Берем первый отдел (основной отдел пользователя)
-		$departmentId = (int)$user['UF_DEPARTMENT'][0];
-		
-		// Получаем данные отдела через API
-		// ВАЖНО: Токен может не иметь прав на department.get
-		// Пробуем получить название, но если ошибка - просто показываем ID
-		if ($departmentId > 0) {
-			// Пробуем получить название отдела через токен установщика (CRest)
-			// Метод: department.get
-			// Документация: https://context7.com/bitrix24/rest/department.get
-			try {
-				$deptResult = CRest::call('department.get', ['ID' => $departmentId]);
-				
-				// Проверяем наличие ошибки
-				if (!isset($deptResult['error']) && isset($deptResult['result'])) {
-					// Обрабатываем разные варианты структуры ответа
-					if (is_array($deptResult['result'])) {
-						// Если result - массив отделов
-						if (isset($deptResult['result'][0]) && is_array($deptResult['result'][0])) {
-							$departmentData = $deptResult['result'][0];
-						} 
-						// Если result - один отдел (ассоциативный массив)
-						elseif (isset($deptResult['result']['ID']) || isset($deptResult['result']['NAME'])) {
-							$departmentData = $deptResult['result'];
-						}
-						// Если result - массив с ключом по ID
-						elseif (isset($deptResult['result'][$departmentId])) {
-							$departmentData = $deptResult['result'][$departmentId];
-						}
-					}
-					
-					if (isset($departmentData) && is_array($departmentData)) {
-						$departmentName = $departmentData['NAME'] ?? null;
-					}
-				}
-			} catch (Exception $e) {
-				// Игнорируем ошибки - просто не получим название отдела
-				// Будет показан только ID
+	// Берем первый отдел (основной отдел пользователя)
+	$departmentId = $userDepartments[0];
+	
+	// Получаем данные отдела через API
+	// ВАЖНО: Токен может не иметь прав на department.get
+	// Пробуем получить название, но если ошибка - просто показываем ID
+	if ($departmentId > 0) {
+		// Пробуем получить название отдела через токен установщика (CRest)
+		// Метод: department.get
+		// Документация: https://context7.com/bitrix24/rest/department.get
+		try {
+			$departmentData = $apiService->getDepartment($departmentId, $currentUserAuthId ?? '', $portalDomain ?? '');
+			
+			if ($departmentData) {
+				$departmentName = $departmentData['NAME'] ?? null;
 			}
+		} catch (\Exception $e) {
+			// Игнорируем ошибки - просто не получим название отдела
+			// Будет показан только ID
 		}
 	}
 }

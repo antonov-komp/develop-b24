@@ -8,47 +8,25 @@
 
 require_once(__DIR__ . '/auth-check.php');
 
-// Проверка авторизации Bitrix24
-if (!checkBitrix24Auth()) {
-	redirectToFailure();
-}
+// Подключение и инициализация сервисов
+require_once(__DIR__ . '/src/bootstrap.php');
 
-require_once(__DIR__ . '/access-control-functions.php');
 require_once(__DIR__ . '/crest.php');
 
 // Получение данных текущего пользователя
 $currentUserAuthId = $_REQUEST['AUTH_ID'] ?? null;
-$portalDomain = $_REQUEST['DOMAIN'] ?? null;
-
-// Получаем домен из settings.json, если не передан в запросе
-if (!$portalDomain) {
-	$settingsFile = __DIR__ . '/settings.json';
-	if (file_exists($settingsFile)) {
-		$settingsContent = file_get_contents($settingsFile);
-		$settings = json_decode($settingsContent, true);
-		if (isset($settings['domain']) && !empty($settings['domain']) && $settings['domain'] !== 'oauth.bitrix.info') {
-			$portalDomain = $settings['domain'];
-		} elseif (isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
-			if (preg_match('#https?://([^/]+)#', $settings['client_endpoint'], $matches)) {
-				$portalDomain = $matches[1];
-			}
-		}
-	}
-}
-
-// Обработка AJAX-запроса поиска пользователей (до проверки администратора)
-// УДАЛЕНО: Теперь все пользователи загружаются сразу при загрузке страницы
-// Поиск работает через фильтрацию уже загруженного списка
+$portalDomain = $domainResolver->resolveDomain();
 
 // Получение данных пользователя для проверки администратора
-// Используем функцию из access-control-functions.php
-$userResult = getCurrentUserDataForAccess($currentUserAuthId, $portalDomain);
 $user = null;
 $isAdmin = false;
 
-if (!isset($userResult['error']) && isset($userResult['result'])) {
-	$user = $userResult['result'];
-	$isAdmin = checkIsAdmin($user, $currentUserAuthId, $portalDomain);
+if ($currentUserAuthId && $portalDomain) {
+	$user = $userService->getCurrentUser($currentUserAuthId, $portalDomain);
+	
+	if ($user) {
+		$isAdmin = $userService->isAdmin($user, $currentUserAuthId, $portalDomain);
+	}
 }
 
 // Если пользователь не администратор - показываем ошибку доступа
@@ -155,14 +133,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	switch ($action) {
 		case 'toggle_enabled':
 			$enabled = isset($_POST['enabled']) && $_POST['enabled'] === '1';
-			$result = toggleAccessControl($enabled, $performedBy);
+			$result = $accessControlService->toggleAccessControl($enabled, $performedBy);
 			
 			if ($result['success']) {
-				logAccessControlOperation('toggle_enabled', ['enabled' => $enabled], $performedBy, true);
+				$logger->logAccessControl('toggle_enabled', ['enabled' => $enabled, 'performed_by' => $performedBy, 'success' => true]);
 				$message = $enabled ? 'Проверка прав доступа включена' : 'Проверка прав доступа выключена';
 				$messageType = 'success';
 			} else {
-				logAccessControlOperation('toggle_enabled', ['enabled' => $enabled, 'error' => $result['error']], $performedBy, false);
+				$logger->logAccessControl('toggle_enabled', ['enabled' => $enabled, 'error' => $result['error'] ?? 'unknown', 'performed_by' => $performedBy, 'success' => false]);
 				$message = $result['error'] ?? 'Ошибка при изменении настройки';
 				$messageType = 'error';
 			}
@@ -173,14 +151,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			$departmentName = trim($_POST['department_name'] ?? '');
 			
 			if ($departmentId > 0 && !empty($departmentName)) {
-				$result = addDepartmentToAccess($departmentId, $departmentName, $performedBy);
+				$result = $accessControlService->addDepartment($departmentId, $departmentName, $performedBy);
 				
 				if ($result['success']) {
-					logAccessControlOperation('add_department', ['id' => $departmentId, 'name' => $departmentName], $performedBy, true);
+					$logger->logAccessControl('add_department', ['id' => $departmentId, 'name' => $departmentName, 'performed_by' => $performedBy, 'success' => true]);
 					$message = 'Отдел добавлен в список доступа';
 					$messageType = 'success';
 				} else {
-					logAccessControlOperation('add_department', ['id' => $departmentId, 'name' => $departmentName, 'error' => $result['error']], $performedBy, false);
+					$logger->logAccessControl('add_department', ['id' => $departmentId, 'name' => $departmentName, 'error' => $result['error'] ?? 'unknown', 'performed_by' => $performedBy, 'success' => false]);
 					$message = $result['error'] ?? 'Ошибка при добавлении отдела';
 					$messageType = 'error';
 				}
@@ -200,12 +178,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			$departmentId = (int)($_POST['department_id'] ?? 0);
 			
 			if ($departmentId > 0) {
-				if (removeDepartmentFromAccess($departmentId)) {
-					logAccessControlOperation('remove_department', ['id' => $departmentId], $performedBy, true);
+				if ($accessControlService->removeDepartment($departmentId)) {
+					$logger->logAccessControl('remove_department', ['id' => $departmentId, 'performed_by' => $performedBy, 'success' => true]);
 					$message = 'Отдел удалён из списка доступа';
 					$messageType = 'success';
 				} else {
-					logAccessControlOperation('remove_department', ['id' => $departmentId], $performedBy, false);
+					$logger->logAccessControl('remove_department', ['id' => $departmentId, 'performed_by' => $performedBy, 'success' => false]);
 					$message = 'Ошибка при удалении отдела';
 					$messageType = 'error';
 				}
@@ -218,59 +196,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 				$userName = trim($_POST['user_name'] ?? '');
 				$userEmail = !empty($_POST['user_email']) ? trim($_POST['user_email']) : null;
 				
-				// Логирование входящих данных для отладки
-				$debugData = [
-					'user_id' => $userId,
-					'user_name' => $userName,
-					'user_email' => $userEmail,
-					'post_data' => $_POST
-				];
-				@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-					date('Y-m-d H:i:s') . ' - ADD_USER DEBUG: ' . json_encode($debugData, JSON_UNESCAPED_UNICODE) . "\n", 
-					FILE_APPEND);
-				
 				if ($userId > 0 && !empty($userName)) {
-					@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-						date('Y-m-d H:i:s') . ' - ADD_USER BEFORE CALL: ' . json_encode(['user_id' => $userId, 'user_name' => $userName], JSON_UNESCAPED_UNICODE) . "\n", 
-						FILE_APPEND);
-					
-					$result = addUserToAccess($userId, $userName, $userEmail, $performedBy);
-					
-					// Детальное логирование результата
-					@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-						date('Y-m-d H:i:s') . ' - ADD_USER RESULT: ' . json_encode([
-							'user_id' => $userId,
-							'user_name' => $userName,
-							'result' => $result
-						], JSON_UNESCAPED_UNICODE) . "\n", 
-						FILE_APPEND);
+					$result = $accessControlService->addUser($userId, $userName, $userEmail, $performedBy);
 					
 					if ($result['success']) {
-						@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-							date('Y-m-d H:i:s') . ' - ADD_USER SUCCESS: Calling logAccessControlOperation' . "\n", 
-							FILE_APPEND);
-						
-						logAccessControlOperation('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail], $performedBy, true);
+						$logger->logAccessControl('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail, 'performed_by' => $performedBy, 'success' => true]);
 						$message = 'Пользователь добавлен в список доступа';
 						$messageType = 'success';
-						
-						@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-							date('Y-m-d H:i:s') . ' - ADD_USER SUCCESS: Message set, messageType=' . $messageType . "\n", 
-							FILE_APPEND);
 					} else {
-						logAccessControlOperation('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail, 'error' => $result['error']], $performedBy, false);
+						$logger->logAccessControl('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail, 'error' => $result['error'] ?? 'unknown', 'performed_by' => $performedBy, 'success' => false]);
 						$message = $result['error'] ?? 'Ошибка при добавлении пользователя';
 						$messageType = 'error';
-						
-						// Дополнительное логирование ошибки
-						@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-							date('Y-m-d H:i:s') . ' - ADD_USER ERROR DETAILS: ' . json_encode([
-								'error' => $result['error'],
-								'user_id' => $userId,
-								'user_name' => $userName,
-								'performed_by' => $performedBy
-							], JSON_UNESCAPED_UNICODE) . "\n", 
-							FILE_APPEND);
 					}
 				} else {
 					$message = 'Не указан пользователь или имя пользователя';
@@ -282,16 +218,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 					}
 					$messageType = 'error';
 				}
-			} catch (Exception $e) {
-				@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-					date('Y-m-d H:i:s') . ' - ADD_USER EXCEPTION: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString() . "\n", 
-					FILE_APPEND);
+			} catch (\Exception $e) {
+				$logger->logError('Error adding user to access control', ['exception' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
 				$message = 'Ошибка при добавлении пользователя: ' . $e->getMessage();
 				$messageType = 'error';
-			} catch (Error $e) {
-				@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
-					date('Y-m-d H:i:s') . ' - ADD_USER ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString() . "\n", 
-					FILE_APPEND);
+			} catch (\Error $e) {
+				$logger->logError('Critical error adding user to access control', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
 				$message = 'Критическая ошибка при добавлении пользователя: ' . $e->getMessage();
 				$messageType = 'error';
 			}
@@ -301,12 +233,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			$userId = (int)($_POST['user_id'] ?? 0);
 			
 			if ($userId > 0) {
-				if (removeUserFromAccess($userId)) {
-					logAccessControlOperation('remove_user', ['id' => $userId], $performedBy, true);
+				if ($accessControlService->removeUser($userId)) {
+					$logger->logAccessControl('remove_user', ['id' => $userId, 'performed_by' => $performedBy, 'success' => true]);
 					$message = 'Пользователь удалён из списка доступа';
 					$messageType = 'success';
 				} else {
-					logAccessControlOperation('remove_user', ['id' => $userId], $performedBy, false);
+					$logger->logAccessControl('remove_user', ['id' => $userId, 'performed_by' => $performedBy, 'success' => false]);
 					$message = 'Ошибка при удалении пользователя';
 					$messageType = 'error';
 				}
@@ -385,7 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Получение текущей конфигурации
-$accessConfig = getAccessConfig();
+$accessConfig = $configService->getAccessConfig();
 
 // Проверка успешного сохранения через GET-параметр
 if (isset($_GET['success']) && isset($_GET['action'])) {
@@ -417,13 +349,13 @@ if (isset($_GET['success']) && isset($_GET['action'])) {
 // Получение списка всех отделов для выпадающего списка
 $allDepartments = [];
 if ($currentUserAuthId && $portalDomain) {
-	$allDepartments = getAllDepartments($currentUserAuthId, $portalDomain);
+	$allDepartments = $apiService->getAllDepartments($currentUserAuthId, $portalDomain);
 }
 
 // Получение списка всех пользователей для выпадающего списка
 $allUsers = [];
 if ($currentUserAuthId && $portalDomain) {
-	$allUsers = getAllUsers($currentUserAuthId, $portalDomain);
+	$allUsers = $apiService->getAllUsers($currentUserAuthId, $portalDomain);
 }
 
 ?>

@@ -8,185 +8,15 @@
 
 require_once(__DIR__ . '/auth-check.php');
 
-// Проверка авторизации Bitrix24
-if (!checkBitrix24Auth()) {
-	redirectToFailure();
-}
+// Подключение и инициализация сервисов
+require_once(__DIR__ . '/src/bootstrap.php');
 
 require_once(__DIR__ . '/crest.php');
 
 /**
- * Получение данных текущего пользователя через токен из запроса
- * 
- * Переиспользуем функцию из index.php
- * 
- * @param string $authId Токен текущего пользователя из $_REQUEST['AUTH_ID']
- * @param string $domain Домен портала
- * @return array|null Данные пользователя или null при ошибке
- */
-function getCurrentUserData($authId, $domain) {
-	if (empty($authId) || empty($domain)) {
-		return null;
-	}
-	
-	// Метод: user.current
-	// Документация: https://context7.com/bitrix24/rest/user.current
-	$url = 'https://' . $domain . '/rest/user.current.json';
-	
-	$requestParams = [
-		'auth' => $authId
-	];
-	
-	$params = http_build_query($requestParams);
-	
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_POST, true);
-	curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-	curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-	curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-	
-	$response = curl_exec($ch);
-	$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	$curlError = curl_error($ch);
-	curl_close($ch);
-	
-	if ($curlError) {
-		return ['error' => 'curl_error', 'error_description' => $curlError];
-	}
-	
-	if ($httpCode !== 200) {
-		$result = json_decode($response, true);
-		if (isset($result['error'])) {
-			return $result;
-		}
-		return ['error' => 'http_error', 'error_description' => 'HTTP Code: ' . $httpCode];
-	}
-	
-	$result = json_decode($response, true);
-	
-	if (json_last_error() !== JSON_ERROR_NONE) {
-		return ['error' => 'json_error', 'error_description' => json_last_error_msg()];
-	}
-	
-	return $result;
-}
-
-/**
- * Получение данных отдела по ID
- * 
- * Переиспользуем функцию из index.php
- * 
- * @param int $departmentId ID отдела
- * @param string $authId Токен авторизации
- * @param string $domain Домен портала
- * @return array|null Данные отдела или null при ошибке
- */
-function getDepartmentData($departmentId, $authId, $domain) {
-	if (empty($departmentId) || empty($authId) || empty($domain)) {
-		return null;
-	}
-	
-	$url = 'https://' . $domain . '/rest/department.get.json';
-	$params = http_build_query([
-		'auth' => $authId,
-		'ID' => $departmentId
-	]);
-	
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_POST, true);
-	curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-	curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-	curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-	
-	$response = curl_exec($ch);
-	$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	$curlError = curl_error($ch);
-	curl_close($ch);
-	
-	if ($curlError || $httpCode !== 200) {
-		return null;
-	}
-	
-	$result = json_decode($response, true);
-	
-	if (json_last_error() !== JSON_ERROR_NONE || isset($result['error'])) {
-		return null;
-	}
-	
-	// Обработка разных вариантов структуры ответа
-	if (isset($result['result']) && is_array($result['result'])) {
-		if (isset($result['result'][0]) && is_array($result['result'][0])) {
-			return $result['result'][0];
-		}
-		if (isset($result['result']['ID']) || isset($result['result']['NAME'])) {
-			return $result['result'];
-		}
-	}
-	
-	return null;
-}
-
-/**
- * Проверка статуса администратора
- * 
- * Метод: user.admin
- * Документация: https://context7.com/bitrix24/rest/user.admin
- * 
- * @param string $authId Токен авторизации
- * @param string $domain Домен портала
- * @return bool|null true если администратор, false если нет, null при ошибке
- */
-function checkAdminStatus($authId, $domain) {
-	if (empty($authId) || empty($domain)) {
-		return null;
-	}
-	
-	$url = 'https://' . $domain . '/rest/user.admin.json';
-	$params = http_build_query(['auth' => $authId]);
-	
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_POST, true);
-	curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-	curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-	curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-	
-	$response = curl_exec($ch);
-	$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	$curlError = curl_error($ch);
-	curl_close($ch);
-	
-	if ($curlError || $httpCode !== 200) {
-		return null;
-	}
-	
-	$result = json_decode($response, true);
-	
-	if (json_last_error() !== JSON_ERROR_NONE || isset($result['error'])) {
-		return null;
-	}
-	
-	// Метод user.admin возвращает true/false в поле result
-	if (isset($result['result'])) {
-		return ($result['result'] === true || $result['result'] === 'true' || $result['result'] == 1);
-	}
-	
-	return null;
-}
-
-/**
  * Проверка доступа к методу API
+ * 
+ * Использует Bitrix24ApiService для проверки доступа
  * 
  * @param string $method Название метода API (например, 'crm.lead.list')
  * @param string $authId Токен авторизации
@@ -194,84 +24,53 @@ function checkAdminStatus($authId, $domain) {
  * @return array Результат проверки
  */
 function checkApiMethodAccess($method, $authId, $domain) {
-	$url = 'https://' . $domain . '/rest/' . $method . '.json';
-	
-	// Формируем минимальный запрос для проверки доступа
-	$params = http_build_query([
-		'auth' => $authId,
-		'limit' => 1 // Минимум данных для проверки
-	]);
-	
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_POST, true);
-	curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-	curl_setopt($ch, CURLOPT_USERAGENT, 'Bitrix24 App PHP');
-	curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+	global $apiService;
 	
 	$startTime = microtime(true);
-	$response = curl_exec($ch);
-	$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	$curlError = curl_error($ch);
-	$executionTime = round((microtime(true) - $startTime) * 1000, 2);
-	curl_close($ch);
 	
-	if ($curlError) {
-		return [
-			'accessible' => false,
-			'error' => 'curl_error',
-			'error_description' => $curlError,
-			'execution_time_ms' => $executionTime
-		];
-	}
-	
-	$result = json_decode($response, true);
-	
-	if (json_last_error() !== JSON_ERROR_NONE) {
-		return [
-			'accessible' => false,
-			'error' => 'json_error',
-			'error_description' => json_last_error_msg(),
-			'execution_time_ms' => $executionTime
-		];
-	}
-	
-	if (isset($result['error'])) {
-		// Проверяем тип ошибки
-		$errorCode = $result['error'];
-		$errorDescription = $result['error_description'] ?? 'Unknown error';
+	try {
+		// Используем Bitrix24ApiService для вызова метода
+		$result = $apiService->call($method, ['limit' => 1]);
+		$executionTime = round((microtime(true) - $startTime) * 1000, 2);
 		
-		// Ошибки, которые означают отсутствие прав
-		$noAccessErrors = ['insufficient_scope', 'ERROR_METHOD_NOT_FOUND', 'NO_AUTH_FOUND', 'invalid_token'];
+		if (isset($result['error'])) {
+			return [
+				'accessible' => false,
+				'error' => $result['error'],
+				'error_description' => $result['error_description'] ?? 'Unknown error',
+				'execution_time_ms' => $executionTime
+			];
+		}
 		
+		// Если нет ошибки, значит метод доступен
+		return [
+			'accessible' => true,
+			'error' => null,
+			'error_description' => null,
+			'execution_time_ms' => $executionTime
+		];
+	} catch (\Exception $e) {
+		$executionTime = round((microtime(true) - $startTime) * 1000, 2);
 		return [
 			'accessible' => false,
-			'error' => $errorCode,
-			'error_description' => $errorDescription,
+			'error' => 'exception',
+			'error_description' => $e->getMessage(),
 			'execution_time_ms' => $executionTime
 		];
 	}
-	
-	// Если нет ошибки, значит метод доступен
-	return [
-		'accessible' => true,
-		'error' => null,
-		'error_description' => null,
-		'execution_time_ms' => $executionTime
-	];
 }
 
 /**
  * Комплексный анализ токена Bitrix24
+ * 
+ * Использует сервисы для получения данных и проверки прав
  * 
  * @param string $authId Токен авторизации
  * @param string $domain Домен портала
  * @return array Результат анализа в формате массива
  */
 function analyzeToken($authId, $domain) {
+	global $userService, $apiService;
 	$analysisStartTime = microtime(true);
 	
 	$analysis = [
@@ -348,7 +147,7 @@ function analyzeToken($authId, $domain) {
 					'id' => $user['ID'] ?? null,
 					'name' => $user['NAME'] ?? null,
 					'last_name' => $user['LAST_NAME'] ?? null,
-					'full_name' => trim(($user['NAME'] ?? '') . ' ' . ($user['LAST_NAME'] ?? '')),
+					'full_name' => $userService->getUserFullName($user),
 					'email' => $user['EMAIL'] ?? null,
 					'photo' => $user['PERSONAL_PHOTO'] ?? null,
 					'time_zone' => $user['TIME_ZONE'] ?? null,
@@ -359,25 +158,11 @@ function analyzeToken($authId, $domain) {
 					'account_created' => isset($user['DATE_REGISTER']) ? $user['DATE_REGISTER'] : null
 				];
 				
-				// Проверка статуса администратора
-				if (isset($user['ADMIN'])) {
-					$adminValue = $user['ADMIN'];
-					$analysis['permissions']['is_admin'] = (
-						$adminValue === 'Y' || 
-						$adminValue === 'y' || 
-						$adminValue == 1 || 
-						$adminValue === 1 || 
-						$adminValue === true ||
-						$adminValue === '1'
-					);
-					$analysis['permissions']['admin_check_method'] = 'ADMIN_field';
-				} else {
-					$adminCheckResult = CRest::call('user.admin', []);
-					if (isset($adminCheckResult['result'])) {
-						$analysis['permissions']['is_admin'] = ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
-						$analysis['permissions']['admin_check_method'] = 'user.admin_method';
-					}
-				}
+				// Проверка статуса администратора через сервисы
+				// Для токена установщика используем пустую строку как authId
+				$isAdmin = $userService->isAdmin($user, '', $domain);
+				$analysis['permissions']['is_admin'] = $isAdmin;
+				$analysis['permissions']['admin_check_method'] = isset($user['ADMIN']) ? 'ADMIN_field' : 'user.admin_method';
 				
 				// Проверка прав доступа к методам API через токен установщика
 				$methodsToCheck = [
@@ -439,70 +224,47 @@ function analyzeToken($authId, $domain) {
 		'type' => $tokenType
 	];
 	
-	// Получение данных владельца токена
-	$userResult = getCurrentUserData($authId, $domain);
+	// Получение данных владельца токена через сервисы
+	$user = $userService->getCurrentUser($authId, $domain);
 	
-	if (isset($userResult['error'])) {
-		$analysis['errors'][] = 'Ошибка получения данных пользователя: ' . ($userResult['error_description'] ?? $userResult['error']);
+	if (!$user) {
+		$analysis['errors'][] = 'Ошибка получения данных пользователя';
 	} else {
-		$user = $userResult['result'] ?? null;
+		// Получаем ID отдела для получения его названия
+		$departmentId = null;
+		$departmentName = null;
 		
-		if ($user) {
-			// Получаем ID отдела для получения его названия
-			$departmentId = null;
-			$departmentName = null;
+		$userDepartments = $userService->getUserDepartments($user);
+		if (!empty($userDepartments)) {
+			$departmentId = $userDepartments[0];
 			
-			if (isset($user['UF_DEPARTMENT']) && is_array($user['UF_DEPARTMENT']) && !empty($user['UF_DEPARTMENT'])) {
-				$departmentId = (int)$user['UF_DEPARTMENT'][0];
-				
-				if ($departmentId > 0) {
-					$departmentData = getDepartmentData($departmentId, $authId, $domain);
-					if ($departmentData) {
-						$departmentName = $departmentData['NAME'] ?? null;
-					}
+			if ($departmentId > 0) {
+				$departmentData = $apiService->getDepartment($departmentId, $authId, $domain);
+				if ($departmentData) {
+					$departmentName = $departmentData['NAME'] ?? null;
 				}
 			}
-			
-			$analysis['token_owner'] = [
-				'id' => $user['ID'] ?? null,
-				'name' => $user['NAME'] ?? null,
-				'last_name' => $user['LAST_NAME'] ?? null,
-				'full_name' => trim(($user['NAME'] ?? '') . ' ' . ($user['LAST_NAME'] ?? '')),
-				'email' => $user['EMAIL'] ?? null,
-				'photo' => $user['PERSONAL_PHOTO'] ?? null,
-				'time_zone' => $user['TIME_ZONE'] ?? null,
-				'department' => [
-					'id' => $departmentId,
-					'name' => $departmentName
-				],
-				'account_created' => isset($user['DATE_REGISTER']) ? $user['DATE_REGISTER'] : null
-			];
-			
-			// Проверка статуса администратора
-			if (isset($user['ADMIN'])) {
-				$adminValue = $user['ADMIN'];
-				$analysis['permissions']['is_admin'] = (
-					$adminValue === 'Y' || 
-					$adminValue === 'y' || 
-					$adminValue == 1 || 
-					$adminValue === 1 || 
-					$adminValue === true ||
-					$adminValue === '1'
-				);
-				$analysis['permissions']['admin_check_method'] = 'ADMIN_field';
-			} else {
-				// Проверка через метод user.admin
-				$adminCheckResult = checkAdminStatus($authId, $domain);
-				if ($adminCheckResult !== null) {
-					$analysis['permissions']['is_admin'] = $adminCheckResult;
-					$analysis['permissions']['admin_check_method'] = 'user.admin_method';
-				} else {
-					$analysis['errors'][] = 'Не удалось проверить статус администратора';
-				}
-			}
-		} else {
-			$analysis['errors'][] = 'Данные пользователя не получены (пустой result)';
 		}
+		
+		$analysis['token_owner'] = [
+			'id' => $user['ID'] ?? null,
+			'name' => $user['NAME'] ?? null,
+			'last_name' => $user['LAST_NAME'] ?? null,
+			'full_name' => $userService->getUserFullName($user),
+			'email' => $user['EMAIL'] ?? null,
+			'photo' => $user['PERSONAL_PHOTO'] ?? null,
+			'time_zone' => $user['TIME_ZONE'] ?? null,
+			'department' => [
+				'id' => $departmentId,
+				'name' => $departmentName
+			],
+			'account_created' => isset($user['DATE_REGISTER']) ? $user['DATE_REGISTER'] : null
+		];
+		
+		// Проверка статуса администратора через сервисы
+		$isAdmin = $userService->isAdmin($user, $authId, $domain);
+		$analysis['permissions']['is_admin'] = $isAdmin;
+		$analysis['permissions']['admin_check_method'] = isset($user['ADMIN']) ? 'ADMIN_field' : 'user.admin_method';
 	}
 	
 	// Проверка прав доступа к методам API
@@ -530,43 +292,9 @@ function analyzeToken($authId, $domain) {
 // Приоритет: POST (более безопасно), затем GET (для обратной совместимости)
 $currentUserAuthId = $_POST['AUTH_ID'] ?? $_GET['AUTH_ID'] ?? $_REQUEST['AUTH_ID'] ?? null;
 
-// Получение домена портала (логика из index.php)
-$settingsFile = __DIR__ . '/settings.json';
-$portalDomain = null;
-$domainSource = 'unknown';
-
-// Приоритет 1: Домен из параметров запроса (POST имеет приоритет над GET)
-$domainFromRequest = $_POST['DOMAIN'] ?? $_GET['DOMAIN'] ?? $_REQUEST['DOMAIN'] ?? null;
-if (!empty($domainFromRequest)) {
-	$portalDomain = $domainFromRequest;
-	$domainSource = 'request_params';
-}
-
-// Приоритет 2: Домен из client_endpoint в settings.json
-if (!$portalDomain && file_exists($settingsFile)) {
-	$settingsContent = file_get_contents($settingsFile);
-	$settings = json_decode($settingsContent, true);
-	if (isset($settings['client_endpoint']) && !empty($settings['client_endpoint'])) {
-		$clientEndpoint = $settings['client_endpoint'];
-		if (preg_match('#https?://([^/]+)#', $clientEndpoint, $matches)) {
-			$portalDomain = $matches[1];
-			$domainSource = 'client_endpoint';
-		}
-	}
-}
-
-// Приоритет 3: Домен из settings.json
-if (!$portalDomain && file_exists($settingsFile)) {
-	$settingsContent = file_get_contents($settingsFile);
-	$settings = json_decode($settingsContent, true);
-	if (isset($settings['domain']) && !empty($settings['domain'])) {
-		$domainFromSettings = $settings['domain'];
-		if ($domainFromSettings !== 'oauth.bitrix.info') {
-			$portalDomain = $domainFromSettings;
-			$domainSource = 'settings';
-		}
-	}
-}
+// Получение домена портала через DomainResolver
+$portalDomain = $domainResolver->resolveDomain();
+$domainSource = 'resolved'; // DomainResolver определяет источник автоматически
 
 // Если домен не найден, используем значение по умолчанию
 if (!$portalDomain) {
@@ -576,36 +304,16 @@ if (!$portalDomain) {
 // ПРОВЕРКА ПРАВ ДОСТУПА: Страница доступна только администраторам
 $isAdmin = false;
 $adminCheckError = null;
+$user = null;
 
 if ($currentUserAuthId && $portalDomain && $portalDomain !== 'не указан') {
 	// Получаем данные пользователя для проверки статуса администратора
-	$userResult = getCurrentUserData($currentUserAuthId, $portalDomain);
+	$user = $userService->getCurrentUser($currentUserAuthId, $portalDomain);
 	
-	if (!isset($userResult['error']) && isset($userResult['result'])) {
-		$user = $userResult['result'];
-		
-		// Проверяем поле ADMIN в данных пользователя
-		if (isset($user['ADMIN'])) {
-			$adminValue = $user['ADMIN'];
-			$isAdmin = (
-				$adminValue === 'Y' || 
-				$adminValue === 'y' || 
-				$adminValue == 1 || 
-				$adminValue === 1 || 
-				$adminValue === true ||
-				$adminValue === '1'
-			);
-		} else {
-			// Если поле ADMIN отсутствует, проверяем через метод user.admin
-			$adminCheckResult = checkAdminStatus($currentUserAuthId, $portalDomain);
-			if ($adminCheckResult !== null) {
-				$isAdmin = $adminCheckResult;
-			} else {
-				$adminCheckError = 'Не удалось проверить статус администратора';
-			}
-		}
+	if ($user) {
+		$isAdmin = $userService->isAdmin($user, $currentUserAuthId, $portalDomain);
 	} else {
-		$adminCheckError = 'Не удалось получить данные пользователя: ' . ($userResult['error_description'] ?? $userResult['error'] ?? 'unknown error');
+		$adminCheckError = 'Не удалось получить данные пользователя';
 	}
 } else {
 	// Если нет токена текущего пользователя, пробуем через токен установщика
@@ -623,15 +331,13 @@ if (!$isAdmin) {
 	$accessDeniedLog = [
 		'timestamp' => date('Y-m-d H:i:s'),
 		'user_id' => isset($user) ? ($user['ID'] ?? 'unknown') : 'unknown',
-		'user_name' => isset($user) ? (($user['NAME'] ?? '') . ' ' . ($user['LAST_NAME'] ?? '')) : 'unknown',
+		'user_name' => isset($user) ? $userService->getUserFullName($user) : 'unknown',
 		'has_token' => !empty($currentUserAuthId),
 		'portal_domain' => $portalDomain,
 		'admin_check_error' => $adminCheckError,
 		'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
 	];
-	@file_put_contents(__DIR__ . '/logs/token-analysis-access-denied-' . date('Y-m-d') . '.log', 
-		date('Y-m-d H:i:s') . ' - ACCESS DENIED: ' . json_encode($accessDeniedLog, JSON_UNESCAPED_UNICODE) . "\n", 
-		FILE_APPEND);
+	$logger->log('Token analysis access denied', $accessDeniedLog, 'warning');
 	
 	// Показываем страницу с ошибкой доступа
 	?>
@@ -819,9 +525,7 @@ $logData = [
 	'execution_time_ms' => $analysisResult['analysis_execution_time_ms'] ?? null
 ];
 
-@file_put_contents(__DIR__ . '/logs/token-analysis-' . date('Y-m-d') . '.log', 
-	date('Y-m-d H:i:s') . ' - ' . json_encode($logData, JSON_UNESCAPED_UNICODE) . "\n", 
-	FILE_APPEND);
+$logger->log('Token analysis completed', $logData, 'info');
 
 ?>
 <!DOCTYPE html>
