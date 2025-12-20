@@ -4,6 +4,9 @@ namespace App\Services;
 
 require_once(__DIR__ . '/../../crest.php');
 
+use App\Clients\Bitrix24Client;
+use App\Exceptions\Bitrix24ApiException;
+
 /**
  * Сервис для работы с Bitrix24 REST API
  * 
@@ -12,15 +15,19 @@ require_once(__DIR__ . '/../../crest.php');
  */
 class Bitrix24ApiService
 {
+    protected Bitrix24Client $client;
     protected LoggerService $logger;
     
-    public function __construct(LoggerService $logger)
+    public function __construct(Bitrix24Client $client, LoggerService $logger)
     {
+        $this->client = $client;
         $this->logger = $logger;
     }
     
     /**
      * Вызов метода Bitrix24 REST API
+     * 
+     * Использует Bitrix24Client для токена установщика
      * 
      * @param string $method Метод API
      * @param array $params Параметры запроса
@@ -28,17 +35,21 @@ class Bitrix24ApiService
      */
     public function call(string $method, array $params = []): array
     {
-        $result = CRest::call($method, $params);
-        
-        if (isset($result['error'])) {
-            $this->logger->logError('Bitrix24 API error', [
+        try {
+            return $this->client->call($method, $params);
+        } catch (Bitrix24ApiException $e) {
+            $this->logger->logError('Bitrix24 API error in service', [
                 'method' => $method,
-                'error' => $result['error'],
-                'error_description' => $result['error_description'] ?? null
+                'error' => $e->getApiError(),
+                'error_description' => $e->getApiErrorDescription()
             ]);
+            
+            // Возвращаем результат с ошибкой для обратной совместимости
+            return [
+                'error' => $e->getApiError() ?? 'unknown_error',
+                'error_description' => $e->getApiErrorDescription() ?? $e->getMessage()
+            ];
         }
-        
-        return $result;
     }
     
     /**
@@ -278,8 +289,16 @@ class Bitrix24ApiService
         $result = null;
         
         if ($curlError || $httpCode !== 200) {
-            // Пробуем через CRest (токен установщика)
-            $result = CRest::call('department.get', []);
+            // Пробуем через Bitrix24Client (токен установщика)
+            try {
+                $result = $this->client->call('department.get', []);
+            } catch (Bitrix24ApiException $e) {
+                $this->logger->logError('Department.get API error (fallback)', [
+                    'error' => $e->getApiError(),
+                    'error_description' => $e->getApiErrorDescription()
+                ]);
+                return [];
+            }
         } else {
             $result = json_decode($response, true);
         }
@@ -355,8 +374,16 @@ class Bitrix24ApiService
         $result = null;
         
         if ($curlError || $httpCode !== 200) {
-            // Пробуем через CRest (токен установщика)
-            $result = CRest::call('user.get', $search ? ['filter' => $requestParams['filter']] : []);
+            // Пробуем через Bitrix24Client (токен установщика)
+            try {
+                $result = $this->client->call('user.get', $search ? ['filter' => $requestParams['filter']] : []);
+            } catch (Bitrix24ApiException $e) {
+                $this->logger->logError('User.get API error (fallback)', [
+                    'error' => $e->getApiError(),
+                    'error_description' => $e->getApiErrorDescription()
+                ]);
+                return [];
+            }
         } else {
             $result = json_decode($response, true);
         }
@@ -424,10 +451,17 @@ class Bitrix24ApiService
             }
         }
         
-        // Fallback: через CRest
-        $adminCheckResult = CRest::call('user.admin', []);
-        if (isset($adminCheckResult['result'])) {
-            return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
+        // Fallback: через Bitrix24Client
+        try {
+            $adminCheckResult = $this->client->call('user.admin', []);
+            if (isset($adminCheckResult['result'])) {
+                return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
+            }
+        } catch (Bitrix24ApiException $e) {
+            $this->logger->logError('User.admin API error (fallback)', [
+                'error' => $e->getApiError(),
+                'error_description' => $e->getApiErrorDescription()
+            ]);
         }
         
         return false;

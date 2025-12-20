@@ -78,15 +78,15 @@ class AuthService
         
         // Проверяем валидность токена через тестовый запрос к Bitrix24
         try {
-            $testResult = CRest::call('profile');
+            $testResult = $this->apiService->call('profile');
             
             // Если есть ошибка авторизации - проверяем тип ошибки
             if (isset($testResult['error'])) {
                 // Исключение: expired_token - токен можно обновить автоматически
                 if ($testResult['error'] === 'expired_token') {
-                    // CRest автоматически обновит токен при следующем запросе
+                    // Bitrix24Client автоматически обновит токен при следующем запросе
                     // Проверяем ещё раз после обновления
-                    $refreshResult = CRest::call('profile');
+                    $refreshResult = $this->apiService->call('profile');
                     if (isset($refreshResult['error']) && 
                         in_array($refreshResult['error'], ['invalid_token', 'invalid_grant', 'invalid_client', 'NO_AUTH_FOUND'])) {
                         $logData['result'] = 'denied_token_invalid_after_refresh';

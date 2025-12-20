@@ -1,10 +1,19 @@
 <?php
 /**
  * Файл инициализации сервисов
- * 
+ *
  * Подключает все необходимые сервисы и хелперы
  * Документация: https://context7.com/bitrix24/rest/
  */
+
+// Подключение исключений
+require_once(__DIR__ . '/Exceptions/Bitrix24ApiException.php');
+require_once(__DIR__ . '/Exceptions/AccessDeniedException.php');
+require_once(__DIR__ . '/Exceptions/ConfigException.php');
+
+// Подключение клиентов
+require_once(__DIR__ . '/Clients/ApiClientInterface.php');
+require_once(__DIR__ . '/Clients/Bitrix24Client.php');
 
 // Подключение сервисов
 require_once(__DIR__ . '/Services/LoggerService.php');
@@ -21,7 +30,12 @@ require_once(__DIR__ . '/Helpers/AdminChecker.php');
 // Инициализация сервисов
 $logger = new App\Services\LoggerService();
 $configService = new App\Services\ConfigService($logger);
-$apiService = new App\Services\Bitrix24ApiService($logger);
+
+// Инициализация клиента API
+$bitrix24Client = new App\Clients\Bitrix24Client($logger);
+
+// Инициализация сервисов с зависимостями
+$apiService = new App\Services\Bitrix24ApiService($bitrix24Client, $logger);
 $userService = new App\Services\UserService($apiService, $logger);
 $accessControlService = new App\Services\AccessControlService($configService, $apiService, $userService, $logger);
 $authService = new App\Services\AuthService($configService, $accessControlService, $apiService, $userService, $logger);

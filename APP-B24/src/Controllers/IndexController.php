@@ -198,7 +198,7 @@ class IndexController extends BaseController
             // Fallback: если нет токена текущего пользователя, используем токен установщика
             // (но это будет владелец токена, а не текущий пользователь)
             $isCurrentUserToken = false;
-            $userResult = CRest::call('user.current', []);
+            $userResult = $this->apiService->call('user.current', []);
             
             if (isset($userResult['error'])) {
                 $errorMessage = $userResult['error_description'] ?? $userResult['error'];
@@ -210,8 +210,8 @@ class IndexController extends BaseController
             // Для токена установщика тоже пытаемся получить ADMIN через user.get
             if ($user && !isset($user['ADMIN']) && isset($user['ID'])) {
                 $userId = $user['ID'];
-                $getUserResult = CRest::call('user.get', [
-                    'id' => $userId,
+                $getUserResult = $this->apiService->call('user.get', [
+                    'ID' => $userId,
                     'select' => ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'ADMIN', 'PERSONAL_PHOTO', 'TIME_ZONE', 'UF_DEPARTMENT']
                 ]);
                 
