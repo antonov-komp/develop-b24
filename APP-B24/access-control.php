@@ -37,20 +37,8 @@ if (!$portalDomain) {
 }
 
 // Обработка AJAX-запроса поиска пользователей (до проверки администратора)
-if (isset($_GET['action']) && $_GET['action'] === 'search_users' && isset($_GET['query'])) {
-	// Минимальная проверка авторизации для AJAX
-	if (!checkBitrix24Auth()) {
-		header('Content-Type: application/json');
-		echo json_encode(['error' => 'Unauthorized'], JSON_UNESCAPED_UNICODE);
-		exit;
-	}
-	
-	$searchQuery = $_GET['query'] ?? '';
-	$foundUsers = getAllUsers($currentUserAuthId, $portalDomain, $searchQuery);
-	header('Content-Type: application/json');
-	echo json_encode(['users' => $foundUsers], JSON_UNESCAPED_UNICODE);
-	exit;
-}
+// УДАЛЕНО: Теперь все пользователи загружаются сразу при загрузке страницы
+// Поиск работает через фильтрацию уже загруженного списка
 
 // Получение данных пользователя для проверки администратора
 // Используем функцию из access-control-functions.php
@@ -167,33 +155,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	switch ($action) {
 		case 'toggle_enabled':
 			$enabled = isset($_POST['enabled']) && $_POST['enabled'] === '1';
-			if (toggleAccessControl($enabled, $performedBy)) {
+			$result = toggleAccessControl($enabled, $performedBy);
+			
+			if ($result['success']) {
 				logAccessControlOperation('toggle_enabled', ['enabled' => $enabled], $performedBy, true);
 				$message = $enabled ? 'Проверка прав доступа включена' : 'Проверка прав доступа выключена';
 				$messageType = 'success';
 			} else {
-				logAccessControlOperation('toggle_enabled', ['enabled' => $enabled], $performedBy, false);
-				$message = 'Ошибка при изменении настройки';
+				logAccessControlOperation('toggle_enabled', ['enabled' => $enabled, 'error' => $result['error']], $performedBy, false);
+				$message = $result['error'] ?? 'Ошибка при изменении настройки';
 				$messageType = 'error';
 			}
 			break;
 			
 		case 'add_department':
 			$departmentId = (int)($_POST['department_id'] ?? 0);
-			$departmentName = $_POST['department_name'] ?? '';
+			$departmentName = trim($_POST['department_name'] ?? '');
 			
 			if ($departmentId > 0 && !empty($departmentName)) {
-				if (addDepartmentToAccess($departmentId, $departmentName, $performedBy)) {
+				$result = addDepartmentToAccess($departmentId, $departmentName, $performedBy);
+				
+				if ($result['success']) {
 					logAccessControlOperation('add_department', ['id' => $departmentId, 'name' => $departmentName], $performedBy, true);
 					$message = 'Отдел добавлен в список доступа';
 					$messageType = 'success';
 				} else {
-					logAccessControlOperation('add_department', ['id' => $departmentId, 'name' => $departmentName], $performedBy, false);
-					$message = 'Ошибка при добавлении отдела (возможно, отдел уже есть в списке)';
+					logAccessControlOperation('add_department', ['id' => $departmentId, 'name' => $departmentName, 'error' => $result['error']], $performedBy, false);
+					$message = $result['error'] ?? 'Ошибка при добавлении отдела';
 					$messageType = 'error';
 				}
 			} else {
-				$message = 'Не указан отдел';
+				$message = 'Не указан отдел или название отдела';
+				if ($departmentId <= 0) {
+					$message .= ' (ID отдела не указан)';
+				}
+				if (empty($departmentName)) {
+					$message .= ' (Название отдела не указано)';
+				}
 				$messageType = 'error';
 			}
 			break;
@@ -215,22 +213,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			break;
 			
 		case 'add_user':
-			$userId = (int)($_POST['user_id'] ?? 0);
-			$userName = $_POST['user_name'] ?? '';
-			$userEmail = $_POST['user_email'] ?? null;
-			
-			if ($userId > 0 && !empty($userName)) {
-				if (addUserToAccess($userId, $userName, $userEmail, $performedBy)) {
-					logAccessControlOperation('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail], $performedBy, true);
-					$message = 'Пользователь добавлен в список доступа';
-					$messageType = 'success';
+			try {
+				$userId = (int)($_POST['user_id'] ?? 0);
+				$userName = trim($_POST['user_name'] ?? '');
+				$userEmail = !empty($_POST['user_email']) ? trim($_POST['user_email']) : null;
+				
+				// Логирование входящих данных для отладки
+				$debugData = [
+					'user_id' => $userId,
+					'user_name' => $userName,
+					'user_email' => $userEmail,
+					'post_data' => $_POST
+				];
+				@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+					date('Y-m-d H:i:s') . ' - ADD_USER DEBUG: ' . json_encode($debugData, JSON_UNESCAPED_UNICODE) . "\n", 
+					FILE_APPEND);
+				
+				if ($userId > 0 && !empty($userName)) {
+					@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+						date('Y-m-d H:i:s') . ' - ADD_USER BEFORE CALL: ' . json_encode(['user_id' => $userId, 'user_name' => $userName], JSON_UNESCAPED_UNICODE) . "\n", 
+						FILE_APPEND);
+					
+					$result = addUserToAccess($userId, $userName, $userEmail, $performedBy);
+					
+					// Детальное логирование результата
+					@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+						date('Y-m-d H:i:s') . ' - ADD_USER RESULT: ' . json_encode([
+							'user_id' => $userId,
+							'user_name' => $userName,
+							'result' => $result
+						], JSON_UNESCAPED_UNICODE) . "\n", 
+						FILE_APPEND);
+					
+					if ($result['success']) {
+						@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+							date('Y-m-d H:i:s') . ' - ADD_USER SUCCESS: Calling logAccessControlOperation' . "\n", 
+							FILE_APPEND);
+						
+						logAccessControlOperation('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail], $performedBy, true);
+						$message = 'Пользователь добавлен в список доступа';
+						$messageType = 'success';
+						
+						@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+							date('Y-m-d H:i:s') . ' - ADD_USER SUCCESS: Message set, messageType=' . $messageType . "\n", 
+							FILE_APPEND);
+					} else {
+						logAccessControlOperation('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail, 'error' => $result['error']], $performedBy, false);
+						$message = $result['error'] ?? 'Ошибка при добавлении пользователя';
+						$messageType = 'error';
+						
+						// Дополнительное логирование ошибки
+						@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+							date('Y-m-d H:i:s') . ' - ADD_USER ERROR DETAILS: ' . json_encode([
+								'error' => $result['error'],
+								'user_id' => $userId,
+								'user_name' => $userName,
+								'performed_by' => $performedBy
+							], JSON_UNESCAPED_UNICODE) . "\n", 
+							FILE_APPEND);
+					}
 				} else {
-					logAccessControlOperation('add_user', ['id' => $userId, 'name' => $userName, 'email' => $userEmail], $performedBy, false);
-					$message = 'Ошибка при добавлении пользователя (возможно, пользователь уже есть в списке)';
+					$message = 'Не указан пользователь или имя пользователя';
+					if ($userId <= 0) {
+						$message .= ' (ID пользователя не указан)';
+					}
+					if (empty($userName)) {
+						$message .= ' (Имя пользователя не указано)';
+					}
 					$messageType = 'error';
 				}
-			} else {
-				$message = 'Не указан пользователь';
+			} catch (Exception $e) {
+				@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+					date('Y-m-d H:i:s') . ' - ADD_USER EXCEPTION: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString() . "\n", 
+					FILE_APPEND);
+				$message = 'Ошибка при добавлении пользователя: ' . $e->getMessage();
+				$messageType = 'error';
+			} catch (Error $e) {
+				@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+					date('Y-m-d H:i:s') . ' - ADD_USER ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString() . "\n", 
+					FILE_APPEND);
+				$message = 'Критическая ошибка при добавлении пользователя: ' . $e->getMessage();
 				$messageType = 'error';
 			}
 			break;
@@ -251,15 +313,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			}
 			break;
 	}
+	
+	// После успешного сохранения делаем редирект на GET-запрос с сохранением параметров
+	// Это предотвращает повторную отправку формы при обновлении страницы
+	if ($messageType === 'success' && isset($_POST['action'])) {
+		try {
+			@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+				date('Y-m-d H:i:s') . ' - REDIRECT START: messageType=' . $messageType . ', action=' . ($_POST['action'] ?? 'none') . "\n", 
+				FILE_APPEND);
+			
+			// Получаем параметры из POST или REQUEST
+			$authId = $_POST['AUTH_ID'] ?? $_REQUEST['AUTH_ID'] ?? $currentUserAuthId ?? '';
+			$domain = $_POST['DOMAIN'] ?? $_REQUEST['DOMAIN'] ?? $portalDomain ?? '';
+			
+			// Формируем URL редиректа - используем SCRIPT_NAME для правильного пути
+			$redirectUrl = $_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? '/APP-B24/access-control.php';
+			
+			$params = [];
+			
+			if (!empty($authId)) {
+				$params['AUTH_ID'] = $authId;
+			}
+			if (!empty($domain)) {
+				$params['DOMAIN'] = $domain;
+			}
+			
+			$params['success'] = '1';
+			$params['action'] = $_POST['action'];
+			
+			$redirectUrl .= '?' . http_build_query($params);
+			
+			// Логирование редиректа для отладки
+			@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+				date('Y-m-d H:i:s') . ' - REDIRECT: ' . json_encode([
+					'redirect_url' => $redirectUrl,
+					'auth_id' => $authId,
+					'domain' => $domain,
+					'action' => $_POST['action'],
+					'php_self' => $_SERVER['PHP_SELF']
+				], JSON_UNESCAPED_UNICODE) . "\n", 
+				FILE_APPEND);
+			
+			// Очищаем все буферы вывода перед отправкой заголовков
+			@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+				date('Y-m-d H:i:s') . ' - REDIRECT: Clearing output buffers, level=' . ob_get_level() . "\n", 
+				FILE_APPEND);
+			
+			while (ob_get_level()) {
+				ob_end_clean();
+			}
+			
+			@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+				date('Y-m-d H:i:s') . ' - REDIRECT: Sending header Location: ' . $redirectUrl . "\n", 
+				FILE_APPEND);
+			
+			// Редирект с сохранением сообщения через GET-параметр
+			header('Location: ' . $redirectUrl, true, 303);
+			exit;
+		} catch (Exception $e) {
+			@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+				date('Y-m-d H:i:s') . ' - REDIRECT EXCEPTION: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n", 
+				FILE_APPEND);
+			// Не делаем редирект при ошибке, просто показываем сообщение
+		} catch (Error $e) {
+			@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+				date('Y-m-d H:i:s') . ' - REDIRECT ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n", 
+				FILE_APPEND);
+			// Не делаем редирект при ошибке, просто показываем сообщение
+		}
+	}
 }
 
 // Получение текущей конфигурации
 $accessConfig = getAccessConfig();
 
+// Проверка успешного сохранения через GET-параметр
+if (isset($_GET['success']) && isset($_GET['action'])) {
+	$action = $_GET['action'] ?? '';
+	switch ($action) {
+		case 'add_user':
+			$message = 'Пользователь добавлен в список доступа';
+			$messageType = 'success';
+			break;
+		case 'add_department':
+			$message = 'Отдел добавлен в список доступа';
+			$messageType = 'success';
+			break;
+		case 'remove_user':
+			$message = 'Пользователь удалён из списка доступа';
+			$messageType = 'success';
+			break;
+		case 'remove_department':
+			$message = 'Отдел удалён из списка доступа';
+			$messageType = 'success';
+			break;
+		case 'toggle_enabled':
+			$message = 'Настройки сохранены';
+			$messageType = 'success';
+			break;
+	}
+}
+
 // Получение списка всех отделов для выпадающего списка
 $allDepartments = [];
 if ($currentUserAuthId && $portalDomain) {
 	$allDepartments = getAllDepartments($currentUserAuthId, $portalDomain);
+}
+
+// Получение списка всех пользователей для выпадающего списка
+$allUsers = [];
+if ($currentUserAuthId && $portalDomain) {
+	$allUsers = getAllUsers($currentUserAuthId, $portalDomain);
 }
 
 ?>
@@ -580,13 +744,20 @@ if ($currentUserAuthId && $portalDomain) {
 				<input type="hidden" name="DOMAIN" value="<?= htmlspecialchars($portalDomain ?? '') ?>">
 				<input type="hidden" name="action" value="add_user">
 				<input type="text" name="user_search" id="user-search" placeholder="Поиск пользователей (имя или email)" 
-					onkeyup="searchUsers(this.value)">
-				<select name="user_id" id="user-select" required style="display: none;">
+					onkeyup="filterUsers(this.value)">
+				<select name="user_id" id="user-select" required>
 					<option value="">Выберите пользователя</option>
+					<?php foreach ($allUsers as $usr): ?>
+						<option value="<?= htmlspecialchars($usr['id']) ?>" 
+							data-name="<?= htmlspecialchars($usr['name']) ?>"
+							data-email="<?= htmlspecialchars($usr['email'] ?? '') ?>">
+							<?= htmlspecialchars($usr['name']) ?><?= $usr['email'] ? ' (' . htmlspecialchars($usr['email']) . ')' : '' ?>
+						</option>
+					<?php endforeach; ?>
 				</select>
 				<input type="hidden" name="user_name" id="user-name">
 				<input type="hidden" name="user_email" id="user-email">
-				<button type="submit" class="btn btn-primary" id="add-user-btn" style="display: none;">Добавить пользователя</button>
+				<button type="submit" class="btn btn-primary" id="add-user-btn">Добавить пользователя</button>
 			</form>
 		</div>
 		
@@ -608,64 +779,61 @@ if ($currentUserAuthId && $portalDomain) {
 			}
 		});
 		
-		// Поиск пользователей
-		let searchTimeout;
-		function searchUsers(query) {
-			clearTimeout(searchTimeout);
-			
-			if (query.length < 2) {
-				document.getElementById('user-select').style.display = 'none';
-				document.getElementById('add-user-btn').style.display = 'none';
-				return;
-			}
-			
-			searchTimeout = setTimeout(function() {
-				// Здесь можно добавить AJAX-запрос для поиска пользователей
-				// Пока используем простой вариант - загружаем всех пользователей
-				loadAllUsers(query);
-			}, 500);
-		}
-		
-		function loadAllUsers(searchQuery) {
-			// В реальном приложении здесь должен быть AJAX-запрос
-			// Для упрощения используем все доступные пользователи
+		// Фильтрация пользователей в выпадающем списке
+		function filterUsers(query) {
 			const select = document.getElementById('user-select');
-			select.innerHTML = '<option value="">Загрузка...</option>';
-			select.style.display = 'block';
+			const options = select.querySelectorAll('option');
+			const searchQuery = query.toLowerCase().trim();
 			
-			// Загружаем пользователей через форму (простой вариант)
-			// В реальном приложении лучше использовать AJAX
-			fetch('access-control.php?action=search_users&query=' + encodeURIComponent(searchQuery) + 
-				'&AUTH_ID=<?= urlencode($currentUserAuthId ?? '') ?>&DOMAIN=<?= urlencode($portalDomain ?? '') ?>')
-				.then(response => response.json())
-				.then(data => {
-					select.innerHTML = '<option value="">Выберите пользователя</option>';
-					if (data.users && data.users.length > 0) {
-						data.users.forEach(function(user) {
-							const option = document.createElement('option');
-							option.value = user.id;
-							option.textContent = user.name + (user.email ? ' (' + user.email + ')' : '');
-							option.setAttribute('data-name', user.name);
-							option.setAttribute('data-email', user.email || '');
-							select.appendChild(option);
-						});
-						document.getElementById('add-user-btn').style.display = 'block';
-					} else {
-						select.innerHTML = '<option value="">Пользователи не найдены</option>';
-					}
-				})
-				.catch(error => {
-					console.error('Ошибка поиска пользователей:', error);
-					select.innerHTML = '<option value="">Ошибка загрузки</option>';
-				});
+			let visibleCount = 0;
+			
+			options.forEach(function(option) {
+				if (option.value === '') {
+					// Пропускаем первую опцию "Выберите пользователя"
+					return;
+				}
+				
+				const text = option.textContent.toLowerCase();
+				const name = option.getAttribute('data-name')?.toLowerCase() || '';
+				const email = option.getAttribute('data-email')?.toLowerCase() || '';
+				
+				if (searchQuery === '' || 
+					text.includes(searchQuery) || 
+					name.includes(searchQuery) || 
+					email.includes(searchQuery)) {
+					option.style.display = '';
+					visibleCount++;
+				} else {
+					option.style.display = 'none';
+				}
+			});
+			
+			// Если ничего не найдено, показываем сообщение
+			if (searchQuery !== '' && visibleCount === 0) {
+				// Можно добавить временную опцию "Не найдено"
+				// Но лучше просто скрыть все опции
+			}
 		}
 		
 		// Обработка выбора пользователя
 		document.getElementById('user-select')?.addEventListener('change', function() {
 			const selectedOption = this.options[this.selectedIndex];
 			if (selectedOption.value) {
-				document.getElementById('user-name').value = selectedOption.getAttribute('data-name');
-				document.getElementById('user-email').value = selectedOption.getAttribute('data-email');
+				const userName = selectedOption.getAttribute('data-name') || selectedOption.textContent.split(' (')[0];
+				const userEmail = selectedOption.getAttribute('data-email') || '';
+				
+				document.getElementById('user-name').value = userName;
+				document.getElementById('user-email').value = userEmail;
+				
+				// Логирование для отладки
+				console.log('Selected user:', {
+					id: selectedOption.value,
+					name: userName,
+					email: userEmail
+				});
+			} else {
+				document.getElementById('user-name').value = '';
+				document.getElementById('user-email').value = '';
 			}
 		});
 		

@@ -108,6 +108,55 @@ function checkIndexPageConfig() {
 }
 
 /**
+ * Проверка, идет ли запрос из Bitrix24 (через iframe)
+ * 
+ * @return bool true если запрос из Bitrix24, false если прямой доступ
+ */
+function isRequestFromBitrix24() {
+	// Проверка 1: наличие параметров, которые Bitrix24 передаёт при открытии приложения
+	if (
+		(isset($_REQUEST['DOMAIN']) && !empty($_REQUEST['DOMAIN'])) ||
+		(isset($_REQUEST['AUTH_ID']) && !empty($_REQUEST['AUTH_ID'])) ||
+		(isset($_REQUEST['APP_SID']) && !empty($_REQUEST['APP_SID']))
+	) {
+		return true;
+	}
+	
+	// Проверка 2: Referer header указывает на домен Bitrix24
+	if (isset($_SERVER['HTTP_REFERER'])) {
+		$referer = $_SERVER['HTTP_REFERER'];
+		// Проверяем, что Referer содержит домен Bitrix24
+		$settingsFile = __DIR__ . '/settings.json';
+		if (file_exists($settingsFile)) {
+			$settingsContent = file_get_contents($settingsFile);
+			$settings = json_decode($settingsContent, true);
+			if (isset($settings['domain']) && !empty($settings['domain'])) {
+				$bitrixDomain = $settings['domain'];
+				if (strpos($referer, $bitrixDomain) !== false || 
+					strpos($referer, 'bitrix24') !== false ||
+					strpos($referer, 'marketplace') !== false) {
+					return true;
+				}
+			}
+		}
+		// Также проверяем общие паттерны Bitrix24
+		if (strpos($referer, 'bitrix24') !== false || strpos($referer, 'marketplace') !== false) {
+			return true;
+		}
+	}
+	
+	// Проверка 3: User-Agent может содержать информацию о Bitrix24
+	if (isset($_SERVER['HTTP_USER_AGENT'])) {
+		$userAgent = $_SERVER['HTTP_USER_AGENT'];
+		if (stripos($userAgent, 'bitrix') !== false) {
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+/**
  * Показ страницы ошибки конфига
  * 
  * @param string $message Сообщение для пользователя
@@ -163,15 +212,27 @@ if (!$authResult) {
 	redirectToFailure();
 }
 
+// Проверка, идет ли запрос из Bitrix24 (через iframe)
+$isFromBitrix24 = isRequestFromBitrix24();
+
 // Проверка конфигурации доступа к главной странице
-$indexConfig = checkIndexPageConfig();
-if (!$indexConfig['enabled']) {
-	logConfigCheck('CONFIG CHECK FAILED: enabled=false, redirecting to config-error.php');
-	showConfigErrorPage(
-		$indexConfig['message'] ?? 'Интерфейс приложения временно недоступен.',
-		$indexConfig['last_updated'] ?? null
-	);
-	exit;
+// ВАЖНО: Если запрос идет из Bitrix24 (iframe) - всегда разрешаем доступ, проверка конфига не нужна
+// Если запрос прямой (прямой URL) - проверяем конфиг, и если enabled: true, то разрешаем
+if (!$isFromBitrix24) {
+	// Прямой доступ - проверяем конфиг
+	$indexConfig = checkIndexPageConfig();
+	if (!$indexConfig['enabled']) {
+		logConfigCheck('CONFIG CHECK FAILED: enabled=false, redirecting to config-error.php (direct access)');
+		showConfigErrorPage(
+			$indexConfig['message'] ?? 'Интерфейс приложения временно недоступен.',
+			$indexConfig['last_updated'] ?? null
+		);
+		exit;
+	}
+	logConfigCheck('CONFIG CHECK PASSED: enabled=true (direct access allowed)');
+} else {
+	// Запрос из Bitrix24 - всегда разрешаем, проверка конфига не нужна
+	logConfigCheck('CONFIG CHECK SKIPPED: Request from Bitrix24 iframe, always allowed');
 }
 
 // Проверка прав доступа (если включена)

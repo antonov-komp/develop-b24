@@ -49,23 +49,106 @@ function getAccessConfig() {
  * Сохранение конфигурации прав доступа
  * 
  * @param array $config Конфигурация для сохранения
- * @return bool true если успешно, false в противном случае
+ * @return array Результат операции ['success' => bool, 'error' => string|null]
  */
 function saveAccessConfig($config) {
 	$configFile = __DIR__ . '/access-config.json';
 	
 	// Убеждаемся, что структура правильная
 	if (!isset($config['access_control'])) {
-		return false;
+		$error = 'Неверная структура конфигурации: отсутствует секция access_control';
+		@file_put_contents(__DIR__ . '/logs/access-config-save-error-' . date('Y-m-d') . '.log', 
+			date('Y-m-d H:i:s') . ' - STRUCTURE ERROR: ' . $error . "\nConfig keys: " . implode(', ', array_keys($config)) . "\n", 
+			FILE_APPEND);
+		return ['success' => false, 'error' => $error];
+	}
+	
+	// Убеждаемся, что все необходимые поля инициализированы
+	if (!isset($config['access_control']['departments']) || !is_array($config['access_control']['departments'])) {
+		$config['access_control']['departments'] = [];
+	}
+	if (!isset($config['access_control']['users']) || !is_array($config['access_control']['users'])) {
+		$config['access_control']['users'] = [];
 	}
 	
 	$json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 	
 	if ($json === false) {
-		return false;
+		$error = 'Ошибка кодирования JSON: ' . json_last_error_msg();
+		@file_put_contents(__DIR__ . '/logs/access-config-save-error-' . date('Y-m-d') . '.log', 
+			date('Y-m-d H:i:s') . ' - JSON ENCODE ERROR: ' . $error . "\nConfig structure: " . print_r($config, true) . "\n", 
+			FILE_APPEND);
+		return ['success' => false, 'error' => $error];
 	}
 	
-	return @file_put_contents($configFile, $json) !== false;
+	// Проверяем права на запись
+	if (!is_writable($configFile) && file_exists($configFile)) {
+		$error = 'Файл конфигурации недоступен для записи. Проверьте права доступа.';
+		@file_put_contents(__DIR__ . '/logs/access-config-save-error-' . date('Y-m-d') . '.log', 
+			date('Y-m-d H:i:s') . ' - FILE NOT WRITABLE: ' . $configFile . ' (owner: ' . fileowner($configFile) . ', perms: ' . substr(sprintf('%o', fileperms($configFile)), -4) . ')' . "\n", 
+			FILE_APPEND);
+		return ['success' => false, 'error' => $error];
+	}
+	
+	// Проверяем права на директорию, если файл не существует
+	if (!file_exists($configFile)) {
+		$dir = dirname($configFile);
+		if (!is_writable($dir)) {
+			$error = 'Директория недоступна для записи. Проверьте права доступа.';
+			@file_put_contents(__DIR__ . '/logs/access-config-save-error-' . date('Y-m-d') . '.log', 
+				date('Y-m-d H:i:s') . ' - DIRECTORY NOT WRITABLE: ' . $dir . "\n", 
+				FILE_APPEND);
+			return ['success' => false, 'error' => $error];
+		}
+	}
+	
+	// Пробуем сохранить файл
+	// Сначала пробуем с блокировкой
+	$result = @file_put_contents($configFile, $json, LOCK_EX);
+	
+	// Если не получилось, пробуем без блокировки
+	if ($result === false) {
+		$result = @file_put_contents($configFile, $json);
+	}
+	
+	if ($result === false) {
+		$error = 'Ошибка записи файла. Проверьте права доступа и место на диске.';
+		$lastError = error_get_last();
+		if ($lastError) {
+			$error .= ' (' . $lastError['message'] . ')';
+		}
+		
+		// Детальное логирование ошибки
+		$errorLog = [
+			'timestamp' => date('Y-m-d H:i:s'),
+			'error' => $error,
+			'file' => $configFile,
+			'file_exists' => file_exists($configFile),
+			'is_writable' => is_writable($configFile),
+			'is_dir_writable' => is_writable(dirname($configFile)),
+			'file_perms' => file_exists($configFile) ? substr(sprintf('%o', fileperms($configFile)), -4) : 'N/A',
+			'file_owner' => file_exists($configFile) ? fileowner($configFile) : 'N/A',
+			'file_group' => file_exists($configFile) ? filegroup($configFile) : 'N/A',
+			'current_user' => get_current_user(),
+			'process_user' => posix_getpwuid(posix_geteuid())['name'] ?? 'unknown',
+			'disk_free_space' => disk_free_space(dirname($configFile)),
+			'json_length' => strlen($json),
+			'last_error' => $lastError
+		];
+		
+		@file_put_contents(__DIR__ . '/logs/access-config-save-error-' . date('Y-m-d') . '.log', 
+			date('Y-m-d H:i:s') . ' - FILE WRITE ERROR: ' . json_encode($errorLog, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n", 
+			FILE_APPEND);
+		
+		return ['success' => false, 'error' => $error];
+	}
+	
+	// Логируем успешное сохранение для отладки
+	@file_put_contents(__DIR__ . '/logs/access-config-save-success-' . date('Y-m-d') . '.log', 
+		date('Y-m-d H:i:s') . ' - FILE SAVED SUCCESSFULLY: ' . $configFile . ' (bytes: ' . $result . ')' . "\n", 
+		FILE_APPEND);
+	
+	return ['success' => true, 'error' => null];
 }
 
 /**
@@ -74,21 +157,35 @@ function saveAccessConfig($config) {
  * @param int $departmentId ID отдела
  * @param string $departmentName Название отдела
  * @param array $addedBy Информация о том, кто добавил ['id' => int, 'name' => string]
- * @return bool true если успешно
+ * @return array Результат операции ['success' => bool, 'error' => string|null]
  */
 function addDepartmentToAccess($departmentId, $departmentName, $addedBy) {
+	// Валидация входных данных
+	if (empty($departmentId) || $departmentId <= 0) {
+		return ['success' => false, 'error' => 'Не указан ID отдела'];
+	}
+	
+	if (empty($departmentName)) {
+		return ['success' => false, 'error' => 'Не указано название отдела'];
+	}
+	
 	$config = getAccessConfig();
+	
+	// Инициализируем массив отделов, если его нет
+	if (!isset($config['access_control']['departments']) || !is_array($config['access_control']['departments'])) {
+		$config['access_control']['departments'] = [];
+	}
 	
 	// Проверяем, нет ли уже такого отдела
 	foreach ($config['access_control']['departments'] as $dept) {
-		if (isset($dept['id']) && $dept['id'] == $departmentId) {
-			return false; // Отдел уже есть
+		if (isset($dept['id']) && (int)$dept['id'] == (int)$departmentId) {
+			return ['success' => false, 'error' => 'Отдел уже есть в списке доступа'];
 		}
 	}
 	
 	$config['access_control']['departments'][] = [
 		'id' => (int)$departmentId,
-		'name' => $departmentName,
+		'name' => trim($departmentName),
 		'added_at' => date('Y-m-d H:i:s'),
 		'added_by' => $addedBy
 	];
@@ -96,7 +193,12 @@ function addDepartmentToAccess($departmentId, $departmentName, $addedBy) {
 	$config['access_control']['last_updated'] = date('Y-m-d H:i:s');
 	$config['access_control']['updated_by'] = $addedBy;
 	
-	return saveAccessConfig($config);
+	$saveResult = saveAccessConfig($config);
+	if ($saveResult['success']) {
+		return ['success' => true, 'error' => null];
+	} else {
+		return ['success' => false, 'error' => $saveResult['error'] ?? 'Ошибка при сохранении конфигурации'];
+	}
 }
 
 /**
@@ -120,7 +222,8 @@ function removeDepartmentFromAccess($departmentId) {
 	$config['access_control']['departments'] = $newDepartments;
 	$config['access_control']['last_updated'] = date('Y-m-d H:i:s');
 	
-	return saveAccessConfig($config);
+	$saveResult = saveAccessConfig($config);
+	return $saveResult['success'];
 }
 
 /**
@@ -130,22 +233,36 @@ function removeDepartmentFromAccess($departmentId) {
  * @param string $userName ФИО пользователя
  * @param string|null $userEmail Email пользователя
  * @param array $addedBy Информация о том, кто добавил ['id' => int, 'name' => string]
- * @return bool true если успешно
+ * @return array Результат операции ['success' => bool, 'error' => string|null]
  */
 function addUserToAccess($userId, $userName, $userEmail, $addedBy) {
+	// Валидация входных данных
+	if (empty($userId) || $userId <= 0) {
+		return ['success' => false, 'error' => 'Не указан ID пользователя'];
+	}
+	
+	if (empty($userName)) {
+		return ['success' => false, 'error' => 'Не указано имя пользователя'];
+	}
+	
 	$config = getAccessConfig();
+	
+	// Инициализируем массив пользователей, если его нет
+	if (!isset($config['access_control']['users']) || !is_array($config['access_control']['users'])) {
+		$config['access_control']['users'] = [];
+	}
 	
 	// Проверяем, нет ли уже такого пользователя
 	foreach ($config['access_control']['users'] as $user) {
-		if (isset($user['id']) && $user['id'] == $userId) {
-			return false; // Пользователь уже есть
+		if (isset($user['id']) && (int)$user['id'] == (int)$userId) {
+			return ['success' => false, 'error' => 'Пользователь уже есть в списке доступа'];
 		}
 	}
 	
 	$config['access_control']['users'][] = [
 		'id' => (int)$userId,
-		'name' => $userName,
-		'email' => $userEmail,
+		'name' => trim($userName),
+		'email' => $userEmail ? trim($userEmail) : null,
 		'added_at' => date('Y-m-d H:i:s'),
 		'added_by' => $addedBy
 	];
@@ -153,7 +270,33 @@ function addUserToAccess($userId, $userName, $userEmail, $addedBy) {
 	$config['access_control']['last_updated'] = date('Y-m-d H:i:s');
 	$config['access_control']['updated_by'] = $addedBy;
 	
-	return saveAccessConfig($config);
+	// Логирование перед сохранением для отладки
+	$usersArray = $config['access_control']['users'] ?? [];
+	$lastUser = !empty($usersArray) ? end($usersArray) : null;
+	@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+		date('Y-m-d H:i:s') . ' - addUserToAccess BEFORE SAVE: ' . json_encode([
+			'user_id' => $userId,
+			'user_name' => $userName,
+			'config_structure' => [
+				'has_access_control' => isset($config['access_control']),
+				'users_count' => count($usersArray),
+				'last_user' => $lastUser
+			]
+		], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n", 
+		FILE_APPEND);
+	
+	$saveResult = saveAccessConfig($config);
+	
+	// Логирование результата сохранения
+	@file_put_contents(__DIR__ . '/logs/access-control-debug-' . date('Y-m-d') . '.log', 
+		date('Y-m-d H:i:s') . ' - addUserToAccess SAVE RESULT: ' . json_encode($saveResult, JSON_UNESCAPED_UNICODE) . "\n", 
+		FILE_APPEND);
+	
+	if ($saveResult['success']) {
+		return ['success' => true, 'error' => null];
+	} else {
+		return ['success' => false, 'error' => $saveResult['error'] ?? 'Ошибка при сохранении конфигурации'];
+	}
 }
 
 /**
@@ -177,7 +320,8 @@ function removeUserFromAccess($userId) {
 	$config['access_control']['users'] = $newUsers;
 	$config['access_control']['last_updated'] = date('Y-m-d H:i:s');
 	
-	return saveAccessConfig($config);
+	$saveResult = saveAccessConfig($config);
+	return $saveResult['success'];
 }
 
 /**
@@ -185,7 +329,7 @@ function removeUserFromAccess($userId) {
  * 
  * @param bool $enabled Включить или выключить
  * @param array $updatedBy Информация о том, кто изменил ['id' => int, 'name' => string]
- * @return bool true если успешно
+ * @return array Результат операции ['success' => bool, 'error' => string|null]
  */
 function toggleAccessControl($enabled, $updatedBy) {
 	$config = getAccessConfig();

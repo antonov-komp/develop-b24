@@ -1,11 +1,23 @@
 {
-  "access_control": {
-    "enabled": true,
-    "departments": [],
-    "users": [],
-    "last_updated": null,
-    "updated_by": null
-  }
+    "access_control": {
+        "enabled": true,
+        "departments": [],
+        "users": [
+            {
+                "id": 13,
+                "name": "Алеша Читающий  Только сотрудник",
+                "email": "user_work@antonov-mark.ru",
+                "added_at": "2025-12-20 16:55:10",
+                "added_by": {
+                    "id": "1",
+                    "name": "Марк Антонов"
+                }
+            }
+        ],
+        "last_updated": "2025-12-20 16:55:10",
+        "updated_by": {
+            "id": "1",
+            "name": "Марк Антонов"
+        }
+    }
 }
-
-
