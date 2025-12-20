@@ -8,9 +8,22 @@
  * Документация: https://context7.com/bitrix24/rest/
  */
 
-// Включение отображения ошибок для отладки (убрать в продакшене)
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// Определение окружения (development/production)
+// По умолчанию production для безопасности
+$appEnv = getenv('APP_ENV') ?: 'production';
+
+// Условное включение отладочных настроек
+if ($appEnv === 'development') {
+    // Режим разработки - показываем все ошибки
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+} else {
+    // Режим продакшена - скрываем ошибки, но логируем их
+    error_reporting(E_ALL); // Логируем все ошибки
+    ini_set('display_errors', 0); // Не показываем на экране
+    ini_set('log_errors', 1); // Логируем в файлы
+    ini_set('error_log', __DIR__ . '/logs/php-errors.log'); // Путь к логу ошибок
+}
 
 try {
     // Подключение и инициализация сервисов
