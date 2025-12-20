@@ -23,10 +23,18 @@ require_once(__DIR__ . '/../src/bootstrap.php');
 $appEnv = getenv('APP_ENV') ?: 'production';
 
 // Получение маршрута
-$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$requestUri = $_SERVER['REQUEST_URI'] ?? '';
+$path = parse_url($requestUri, PHP_URL_PATH) ?: '';
+
+// Удаляем префикс /APP-B24/api/index.php если есть
+$path = preg_replace('#^/APP-B24/api/index\.php#', '', $path);
 // Удаляем префикс /APP-B24/api если есть
 $path = preg_replace('#^/APP-B24/api#', '', $path);
+// Удаляем префикс /api если есть
 $path = preg_replace('#^/api#', '', $path);
+// Удаляем index.php если остался
+$path = preg_replace('#/index\.php#', '', $path);
+
 $segments = array_filter(explode('/', trim($path, '/')));
 $segments = array_values($segments);
 

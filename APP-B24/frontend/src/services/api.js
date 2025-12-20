@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // Базовый URL API
-const API_BASE_URL = '/APP-B24/api';
+// Используем index.php для правильной работы с nginx
+const API_BASE_URL = '/APP-B24/api/index.php';
 
 // Создание экземпляра axios
 const apiClient = axios.create({
