@@ -187,3 +187,4 @@ if (isset($result['error'])) {
 - 2025-12-19 11:52 (UTC+3, Брест): Создан справочник Bitrix24 REST API
 
 
+
