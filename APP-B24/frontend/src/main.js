@@ -33,5 +33,16 @@ app.config.errorHandler = (err, instance, info) => {
 };
 
 // Монтирование приложения
-app.mount('#app');
+console.log('Vue app mounting...', { 
+  appElement: document.querySelector('#app'),
+  router: router,
+  routes: router.getRoutes()
+});
+
+try {
+  app.mount('#app');
+  console.log('Vue app mounted successfully');
+} catch (error) {
+  console.error('Error mounting Vue app:', error);
+}
 

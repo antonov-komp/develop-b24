@@ -29,7 +29,7 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true, // Удаление console.log в production
+        drop_console: false, // Временно оставляем console.log для отладки
       },
     },
     // Размер предупреждений

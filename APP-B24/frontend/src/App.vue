@@ -12,6 +12,12 @@ import { isInBitrix24, getBitrix24Data } from '@/utils/bitrix24';
 const router = useRouter();
 
 onMounted(() => {
+  console.log('App.vue mounted', {
+    currentRoute: router.currentRoute.value,
+    location: window.location.href,
+    search: window.location.search
+  });
+  
   // Проверка, что мы внутри Bitrix24 iframe
   if (isInBitrix24()) {
     console.log('Bitrix24 BX.* API доступен');
@@ -35,10 +41,17 @@ onMounted(() => {
   // Инициализация роутера
   // Если нет параметров авторизации, редирект на главную
   const params = new URLSearchParams(window.location.search);
+  console.log('URL params:', {
+    AUTH_ID: params.get('AUTH_ID') ? 'present' : 'missing',
+    DOMAIN: params.get('DOMAIN') ? 'present' : 'missing'
+  });
+  
   if (!params.has('AUTH_ID') || !params.has('DOMAIN')) {
     // В development режиме можно разрешить доступ без параметров
     if (import.meta.env.DEV) {
       console.warn('Development mode: AUTH_ID and DOMAIN not found');
+    } else {
+      console.error('Missing AUTH_ID or DOMAIN in production mode');
     }
   }
 });

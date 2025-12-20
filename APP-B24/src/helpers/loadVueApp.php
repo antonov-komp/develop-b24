@@ -11,12 +11,22 @@ function loadVueApp(?string $initialRoute = null): void
     // Определение окружения
     $appEnv = getenv('APP_ENV') ?: 'production';
     
-    // Путь к собранным файлам
-    $distPath = __DIR__ . '/../../public/dist';
-    $indexHtml = $distPath . '/index.html';
+    // Путь к собранным файлам (от корня проекта)
+    // __DIR__ здесь = APP-B24/src/helpers/
+    // Нужно подняться на 2 уровня вверх: APP-B24/
+    // Используем реальный путь от файла loadVueApp.php
+    $indexHtml = __DIR__ . '/../../public/dist/index.html';
+    
+    // Нормализуем путь (убираем ../ и ./)
+    $indexHtml = realpath($indexHtml);
+    
+    // Если realpath вернул false, значит файл не существует
+    if ($indexHtml === false) {
+        $indexHtml = __DIR__ . '/../../public/dist/index.html';
+    }
     
     // Проверка существования собранных файлов
-    if (!file_exists($indexHtml)) {
+    if (!file_exists($indexHtml) || $indexHtml === false) {
         if ($appEnv === 'development') {
             http_response_code(503);
             die('
@@ -49,17 +59,32 @@ function loadVueApp(?string $initialRoute = null): void
     // Чтение index.html
     $html = file_get_contents($indexHtml);
     
-    // Замена путей к ресурсам для правильной загрузки
-    $basePath = '/APP-B24/public/dist/';
-    $html = str_replace('href="/', 'href="' . $basePath, $html);
-    $html = str_replace('src="/', 'src="' . $basePath, $html);
+    // Пути в index.html уже правильные (содержат /APP-B24/public/dist/)
+    // Не нужно их заменять, только добавляем/обновляем base tag
     
-    // Замена базового пути для правильной работы роутера
-    $html = str_replace(
-        '<base href="/">',
-        '<base href="/APP-B24/public/dist/">',
-        $html
-    );
+    // Добавляем base tag, если его нет, или обновляем существующий
+    if (strpos($html, '<base') === false) {
+        // Вставляем base tag после <head>
+        $html = str_replace('<head>', '<head><base href="/APP-B24/">', $html);
+    } else {
+        // Заменяем существующий base tag
+        $html = preg_replace('/<base[^>]*>/', '<base href="/APP-B24/">', $html);
+    }
+    
+    // Добавляем отладочный скрипт для проверки загрузки (только в development)
+    if ($appEnv === 'development') {
+        $debugScript = '
+        <script>
+            console.log("Vue.js app loading...", {
+                base: document.querySelector("base")?.href,
+                scripts: Array.from(document.querySelectorAll("script")).map(s => s.src),
+                styles: Array.from(document.querySelectorAll("link[rel=stylesheet]")).map(l => l.href),
+                appElement: document.querySelector("#app")
+            });
+        </script>
+        ';
+        $html = str_replace('</head>', $debugScript . '</head>', $html);
+    }
     
     // Если указан начальный маршрут, добавляем скрипт для навигации
     if ($initialRoute && $initialRoute !== '/') {
