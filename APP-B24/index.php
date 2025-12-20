@@ -8,24 +8,45 @@
  * Документация: https://context7.com/bitrix24/rest/
  */
 
-// Подключение и инициализация сервисов
-require_once(__DIR__ . '/src/bootstrap.php');
+// Включение отображения ошибок для отладки (убрать в продакшене)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-// Подключение контроллера
-require_once(__DIR__ . '/src/Controllers/BaseController.php');
-require_once(__DIR__ . '/src/Controllers/IndexController.php');
+try {
+    // Подключение и инициализация сервисов
+    require_once(__DIR__ . '/src/bootstrap.php');
 
-// Создание контроллера
-$controller = new App\Controllers\IndexController(
-    $logger,
-    $configService,
-    $apiService,
-    $userService,
-    $accessControlService,
-    $authService,
-    $domainResolver,
-    $adminChecker
-);
+    // Подключение контроллера
+    require_once(__DIR__ . '/src/Controllers/BaseController.php');
+    require_once(__DIR__ . '/src/Controllers/IndexController.php');
 
-// Вызов метода контроллера
-$controller->index();
+    // Создание контроллера
+    $controller = new App\Controllers\IndexController(
+        $logger,
+        $configService,
+        $apiService,
+        $userService,
+        $accessControlService,
+        $authService,
+        $domainResolver,
+        $adminChecker
+    );
+
+    // Вызов метода контроллера
+    $controller->index();
+} catch (\Throwable $e) {
+    // Логирование ошибки
+    error_log('Fatal error in index.php: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    
+    // Показываем ошибку (в продакшене лучше показывать общую страницу ошибки)
+    http_response_code(500);
+    echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Ошибка</title></head><body>';
+    echo '<h1>Ошибка приложения</h1>';
+    echo '<p>Произошла ошибка при загрузке страницы.</p>';
+    if (ini_get('display_errors')) {
+        echo '<pre>' . htmlspecialchars($e->getMessage()) . '</pre>';
+        echo '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>';
+    }
+    echo '</body></html>';
+    exit;
+}

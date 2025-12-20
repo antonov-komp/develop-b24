@@ -35,6 +35,7 @@ ob_start();
 		align-items: center;
 		justify-content: center;
 		padding: 20px;
+		margin: 0;
 		opacity: 0;
 		animation: fadeIn 0.5s ease-in-out forwards;
 	}
@@ -50,15 +51,22 @@ ob_start();
 	
 	.welcome-container {
 		background: white;
-		border-radius: 16px;
+		border-radius: 20px;
 		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-		padding: 40px;
-		max-width: 600px;
+		padding: 50px 40px;
+		max-width: 700px;
 		width: 100%;
 		text-align: center;
 		opacity: 0;
 		transform: translateY(30px);
 		animation: slideUpFadeIn 0.6s ease-out 0.2s forwards;
+	}
+	
+	@media (max-width: 768px) {
+		.welcome-container {
+			padding: 30px 20px;
+			border-radius: 16px;
+		}
 	}
 	
 	@keyframes slideUpFadeIn {
@@ -116,11 +124,12 @@ ob_start();
 	
 	.user-info {
 		background: #f8f9fa;
-		border-radius: 12px;
-		padding: 25px;
-		margin-bottom: 20px;
+		border-radius: 16px;
+		padding: 30px;
+		margin-bottom: 25px;
 		opacity: 0;
 		animation: fadeInUp 0.5s ease-out 0.6s forwards;
+		border: 1px solid #e9ecef;
 	}
 	
 	@keyframes fadeInUp {
@@ -138,8 +147,17 @@ ob_start();
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 12px 0;
+		padding: 15px 0;
 		border-bottom: 1px solid #e9ecef;
+		transition: background-color 0.2s ease;
+	}
+	
+	.info-row:hover {
+		background-color: rgba(102, 126, 234, 0.05);
+		margin: 0 -15px;
+		padding-left: 15px;
+		padding-right: 15px;
+		border-radius: 8px;
 	}
 	
 	.info-row:last-child {
@@ -150,12 +168,34 @@ ob_start();
 		font-weight: 600;
 		color: #666;
 		font-size: 14px;
+		text-align: left;
+		flex: 0 0 40%;
 	}
 	
 	.info-value {
 		font-weight: 500;
 		color: #333;
 		font-size: 16px;
+		text-align: right;
+		flex: 1;
+		word-break: break-word;
+	}
+	
+	@media (max-width: 480px) {
+		.info-row {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 8px;
+		}
+		
+		.info-label {
+			flex: none;
+		}
+		
+		.info-value {
+			text-align: left;
+			flex: none;
+		}
 	}
 	
 	.admin-badge {
@@ -185,35 +225,45 @@ ob_start();
 	}
 	
 	.domain-info {
-		background: #e7f3ff;
+		background: linear-gradient(135deg, #e7f3ff 0%, #f0f7ff 100%);
 		border-left: 4px solid #667eea;
-		padding: 15px;
-		border-radius: 8px;
-		margin-top: 20px;
+		padding: 20px;
+		border-radius: 12px;
+		margin-top: 25px;
 		opacity: 0;
 		animation: fadeInUp 0.5s ease-out 0.8s forwards;
+		box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
 	}
 	
 	.domain-label {
 		font-size: 12px;
 		color: #666;
-		margin-bottom: 5px;
+		margin-bottom: 8px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		font-weight: 600;
 	}
 	
 	.domain-value {
-		font-size: 18px;
-		font-weight: 600;
+		font-size: 20px;
+		font-weight: 700;
 		color: #667eea;
+		word-break: break-all;
 	}
 	
 	.footer {
-		margin-top: 30px;
-		padding-top: 20px;
-		border-top: 1px solid #e9ecef;
-		font-size: 12px;
-		color: #999;
+		margin-top: 35px;
+		padding-top: 25px;
+		border-top: 2px solid #e9ecef;
+		font-size: 14px;
+		color: #666;
 		opacity: 0;
 		animation: fadeInUp 0.5s ease-out 1s forwards;
+	}
+	
+	.footer p {
+		margin: 8px 0;
+		line-height: 1.6;
 	}
 	
 	.footer form {
@@ -223,11 +273,40 @@ ob_start();
 	
 	.footer button {
 		transition: transform 0.3s ease, box-shadow 0.3s ease;
+		font-family: inherit;
 	}
 	
 	.footer button:hover {
 		transform: translateY(-3px);
 		box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4) !important;
+	}
+	
+	.footer button:active {
+		transform: translateY(-1px);
+	}
+	
+	.admin-actions {
+		margin-top: 25px;
+		padding-top: 25px;
+		border-top: 2px solid #e9ecef;
+		display: flex;
+		gap: 15px;
+		flex-wrap: wrap;
+		justify-content: center;
+	}
+	
+	@media (max-width: 480px) {
+		.admin-actions {
+			flex-direction: column;
+		}
+		
+		.admin-actions form {
+			width: 100%;
+		}
+		
+		.admin-actions button {
+			width: 100%;
+		}
 	}
 </style>
 <?php
@@ -323,8 +402,8 @@ $styles = ob_get_clean();
 		<?php endif; ?>
 		
 		<?php if ($isAdmin): ?>
-		<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef; display: flex; gap: 15px; flex-wrap: wrap;">
-			<form method="POST" action="token-analysis.php" style="display: inline-block;">
+		<div class="admin-actions">
+			<form method="POST" action="token-analysis.php">
 				<?php if (!empty($_REQUEST['AUTH_ID'])): ?>
 					<input type="hidden" name="AUTH_ID" value="<?= htmlspecialchars($_REQUEST['AUTH_ID']) ?>">
 				<?php endif; ?>
@@ -332,11 +411,11 @@ $styles = ob_get_clean();
 					<input type="hidden" name="DOMAIN" value="<?= htmlspecialchars($_REQUEST['DOMAIN']) ?>">
 				<?php endif; ?>
 				<button type="submit" 
-						style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); font-size: 14px;">
+						style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 28px; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); font-size: 14px; min-width: 200px;">
 					🔍 Анализ токена и прав доступа
 				</button>
 			</form>
-			<form method="POST" action="access-control.php" style="display: inline-block;">
+			<form method="POST" action="access-control.php">
 				<?php if (!empty($_REQUEST['AUTH_ID'])): ?>
 					<input type="hidden" name="AUTH_ID" value="<?= htmlspecialchars($_REQUEST['AUTH_ID']) ?>">
 				<?php endif; ?>
@@ -344,7 +423,7 @@ $styles = ob_get_clean();
 					<input type="hidden" name="DOMAIN" value="<?= htmlspecialchars($_REQUEST['DOMAIN']) ?>">
 				<?php endif; ?>
 				<button type="submit" 
-						style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(245, 87, 108, 0.3); font-size: 14px;">
+						style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 14px 28px; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(245, 87, 108, 0.3); font-size: 14px; min-width: 200px;">
 					🔐 Управление правами доступа
 				</button>
 			</form>

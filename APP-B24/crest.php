@@ -537,6 +537,14 @@ class CRest
 			if (!file_exists($path))
 			{
 				@mkdir($path, 0775, true);
+				@chmod($path, 0775);
+				// Попытка установить владельца на www-data, если возможно
+				if (function_exists('posix_getpwnam')) {
+					$wwwDataInfo = @posix_getpwnam('www-data');
+					if ($wwwDataInfo !== false && isset($wwwDataInfo['uid'])) {
+						@chown($path, $wwwDataInfo['uid']);
+					}
+				}
 			}
 
 			$path .= time() . '_' . $type . '_' . rand(1, 9999999) . 'log';

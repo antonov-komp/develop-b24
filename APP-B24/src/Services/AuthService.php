@@ -248,16 +248,27 @@ class AuthService
         // Определяем хост
         $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
         
-        // Определяем базовый путь
-        $scriptPath = dirname($_SERVER['PHP_SELF']);
+        // Определяем базовый путь из текущего скрипта
+        $scriptPath = dirname($_SERVER['PHP_SELF'] ?? $_SERVER['SCRIPT_NAME'] ?? '/');
         $scriptPath = rtrim($scriptPath, '/');
         
-        // Формируем абсолютный URL для failure.php
-        if ($scriptPath === '' || $scriptPath === '.') {
-            $failureUrl = $protocol . '://' . $host . '/failure.php';
+        // Формируем относительный путь к failure.php (в той же директории, что и текущий скрипт)
+        if ($scriptPath === '' || $scriptPath === '.' || $scriptPath === '/') {
+            $failurePath = '/failure.php';
         } else {
-            $failureUrl = $protocol . '://' . $host . $scriptPath . '/failure.php';
+            $failurePath = $scriptPath . '/failure.php';
         }
+        
+        // Формируем абсолютный URL для failure.php
+        $failureUrl = $protocol . '://' . $host . $failurePath;
+        
+        // Логирование для отладки
+        $this->logger->log('Redirecting to failure page', [
+            'url' => $failureUrl,
+            'script_path' => $scriptPath,
+            'host' => $host,
+            'protocol' => $protocol
+        ], 'info');
         
         // Очищаем буфер вывода перед отправкой заголовков
         if (ob_get_level()) {
@@ -270,7 +281,7 @@ class AuthService
         header('Content-Type: text/html; charset=UTF-8');
         
         // Выводим сообщение на случай, если редирект не сработает
-        echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=' . htmlspecialchars($failureUrl) . '"></head><body><p>Redirecting to <a href="' . htmlspecialchars($failureUrl) . '">error page</a>...</p></body></html>';
+        echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="0;url=' . htmlspecialchars($failureUrl) . '"></head><body><p>Redirecting to <a href="' . htmlspecialchars($failureUrl) . '">error page</a>...</p></body></html>';
         
         exit;
     }

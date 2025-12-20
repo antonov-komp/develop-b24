@@ -40,7 +40,7 @@ class Bitrix24Client implements ApiClientInterface
         ], 'info');
         
         try {
-            $result = CRest::call($method, $params);
+            $result = \CRest::call($method, $params);
             $executionTime = round((microtime(true) - $startTime) * 1000, 2);
             
             if (isset($result['error'])) {
@@ -92,7 +92,7 @@ class Bitrix24Client implements ApiClientInterface
         ], 'info');
         
         try {
-            $result = CRest::callBatch($commands, $halt);
+            $result = \CRest::callBatch($commands, $halt);
             $executionTime = round((microtime(true) - $startTime) * 1000, 2);
             
             if (isset($result['error'])) {
