@@ -1,7 +1,8 @@
 # Настройка сервера для backend.antonov-mark.ru
 
 **Дата создания:** 2025-12-19 11:16 (UTC+3, Брест)  
-**Версия:** 1.0  
+**Последнее обновление:** 2025-12-20 19:04 (UTC+3, Брест)  
+**Версия:** 1.1  
 **Описание:** Документация по настройке веб-сервера Nginx для поддомена backend.antonov-mark.ru
 
 ---
@@ -35,6 +36,14 @@ chmod 755 /var/www/backend.antonov-mark.ru
 **Созданы файлы:**
 - `/var/www/backend.antonov-mark.ru/index.html` — HTML тестовая страница
 - `/var/www/backend.antonov-mark.ru/index.php` — PHP тестовая страница с информацией о сервере
+
+### 2.1. Структура проекта
+
+**Текущая структура директорий:**
+- `/var/www/backend.antonov-mark.ru/APP-B24/` — приложение Bitrix24
+- `/var/www/backend.antonov-mark.ru/DOCS/` — документация проекта
+- `/var/www/backend.antonov-mark.ru/demo/` — демонстрационные файлы
+- `/var/www/backend.antonov-mark.ru/.git/` — репозиторий Git
 
 ### 3. Конфигурация Nginx
 
@@ -199,9 +208,19 @@ chmod 755 /var/log/php
 
 **Статус:** Сертификат действителен, включает поддомен `backend.antonov-mark.ru`
 
+**Срок действия:**
+- Выдан: 2025-12-12
+- Истекает: 2026-03-12 (81 день до истечения)
+- Автоматическое обновление: настроено через certbot
+
 **Проверка сертификата:**
 ```bash
-certbot certificates | grep -A 5 "backend.antonov-mark.ru"
+certbot certificates | grep -A 10 "backend.antonov-mark.ru"
+```
+
+**Проверка через OpenSSL:**
+```bash
+openssl s_client -connect backend.antonov-mark.ru:443 -servername backend.antonov-mark.ru </dev/null 2>/dev/null | openssl x509 -noout -dates -subject
 ```
 
 ### 6. Редирект HTTP → HTTPS
@@ -233,6 +252,12 @@ nginx -t
 nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 nginx: configuration file /etc/nginx/nginx.conf test is successful
 ```
+
+**Примечание:** При проверке может появиться предупреждение:
+```
+[warn] protocol options redefined for 0.0.0.0:443 in /etc/nginx/sites-enabled/back.antonov-mark.ru:38
+```
+Это предупреждение не критично и связано с переопределением SSL-опций в других конфигурационных файлах. Работа сервера не нарушена.
 
 ### 2. Перезагрузка Nginx
 
@@ -283,8 +308,22 @@ Location: https://backend.antonov-mark.ru
 /var/www/backend.antonov-mark.ru/
 ├── index.html              # HTML тестовая страница
 ├── index.php               # PHP тестовая страница
-└── DOCS/
-    └── SERVER_SETUP.md     # Эта документация
+├── README.md               # Описание проекта
+├── .git/                   # Git репозиторий
+├── APP-B24/                # Приложение Bitrix24
+│   ├── src/                # Исходный код
+│   ├── templates/          # Шаблоны
+│   ├── tools/              # Инструменты
+│   └── logs/               # Логи приложения
+├── demo/                   # Демонстрационные файлы
+└── DOCS/                   # Документация проекта
+    ├── SERVER_SETUP.md     # Эта документация
+    ├── TASKS/              # Задачи проекта
+    ├── ARCHITECTURE/       # Архитектура
+    ├── ANALYSIS/           # Анализ
+    ├── PLAN/               # Планы
+    ├── GUIDES/             # Руководства
+    └── API-REFERENCES/     # Справочники API
 
 /etc/nginx/
 ├── sites-available/
@@ -307,9 +346,10 @@ Location: https://backend.antonov-mark.ru
 ### Версии ПО
 
 - **Nginx:** 1.24.0 (Ubuntu)
-- **PHP:** 8.3.6
-- **PHP-FPM:** 8.3
+- **PHP (CLI):** 8.3.6 (built: Jul 14 2025)
+- **PHP-FPM:** 8.3.6 (fpm-fcgi)
 - **SSL:** Let's Encrypt
+- **Git:** установлен (репозиторий в корне проекта)
 
 ### Настройки
 
@@ -356,6 +396,42 @@ tail -f /var/log/nginx/backend-antonov-mark-error.log
 tail -f /var/log/php/backend-antonov-mark-php-error.log
 ```
 
+**Размеры логов (по состоянию на 2025-12-20):**
+- Access log: ~32 KB
+- Error log: ~8 KB
+- PHP error log: ~130 KB
+
+### Известные проблемы
+
+**1. Отсутствие файла 50x.html**
+- **Проблема:** В логах Nginx встречаются ошибки о недоступности `/usr/share/nginx/html/50x.html`
+- **Причина:** Файл страницы ошибки не создан
+- **Решение:** Создать кастомную страницу ошибки или использовать стандартную:
+```bash
+# Создать кастомную страницу ошибки
+echo "<h1>Ошибка сервера</h1>" > /var/www/backend.antonov-mark.ru/50x.html
+
+# Или обновить конфигурацию для использования стандартной страницы
+# (уже настроено в конфиге, но файл может отсутствовать)
+```
+
+**2. Отсутствие favicon.ico**
+- **Проблема:** В логах встречаются запросы к несуществующему `/favicon.ico`
+- **Причина:** Файл favicon не создан
+- **Решение:** Создать favicon.ico или добавить в конфигурацию Nginx:
+```nginx
+location = /favicon.ico {
+    log_not_found off;
+    access_log off;
+    return 204;
+}
+```
+
+**3. Предупреждение Nginx о переопределении протокольных опций**
+- **Проблема:** При проверке конфигурации появляется предупреждение о переопределении SSL-опций
+- **Причина:** Несколько конфигураций используют один и тот же порт 443
+- **Статус:** Не критично, работа сервера не нарушена
+
 ### Обновление SSL сертификата
 
 Сертификат обновляется автоматически через certbot. Для ручного обновления:
@@ -368,6 +444,14 @@ systemctl reload nginx
 ---
 
 ## История изменений
+
+- **2025-12-20 19:04 (UTC+3, Брест):** Обновлена документация
+  - Добавлена информация о текущей структуре проекта (APP-B24, DOCS, demo)
+  - Обновлена информация о SSL сертификате (срок действия до 2026-03-12)
+  - Добавлена информация о версиях ПО (PHP 8.3.6)
+  - Добавлен раздел "Известные проблемы" с описанием найденных ошибок в логах
+  - Добавлена информация о предупреждении Nginx при проверке конфигурации
+  - Обновлена структура файлов с актуальными директориями
 
 - **2025-12-19 11:16 (UTC+3, Брест):** Создана конфигурация для поддомена backend.antonov-mark.ru
   - Создана директория сайта
@@ -386,4 +470,15 @@ systemctl reload nginx
 2. Логи ошибок: `/var/log/nginx/backend-antonov-mark-error.log`
 3. Логи PHP: `/var/log/php/backend-antonov-mark-php-error.log`
 4. Конфигурацию: `nginx -t`
+5. Доступность сайта: `curl -I https://backend.antonov-mark.ru`
+6. SSL сертификат: `certbot certificates`
+
+### Статус сервера (по состоянию на 2025-12-20)
+
+- **Nginx:** активен и работает (running)
+- **PHP-FPM:** работает (unix:/run/php/php8.3-fpm.sock)
+- **SSL:** сертификат действителен до 2026-03-12
+- **HTTPS:** работает корректно (HTTP/2 200)
+- **Редирект HTTP→HTTPS:** работает
+- **Логирование:** настроено и работает
 
