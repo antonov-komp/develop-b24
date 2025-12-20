@@ -1,0 +1,13 @@
+# Пример конфигурации nginx для API
+# Добавьте это в конфигурацию nginx для домена
+
+location /APP-B24/api/ {
+    try_files $uri $uri/ /APP-B24/api/index.php?$query_string;
+}
+
+location ~ \.php$ {
+    fastcgi_pass unix:/var/run/php/php-fpm.sock;
+    fastcgi_index index.php;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+}

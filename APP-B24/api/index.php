@@ -26,21 +26,28 @@ $appEnv = getenv('APP_ENV') ?: 'production';
 $requestUri = $_SERVER['REQUEST_URI'] ?? '';
 $path = parse_url($requestUri, PHP_URL_PATH) ?: '';
 
-// Удаляем префикс /APP-B24/api/index.php если есть
-$path = preg_replace('#^/APP-B24/api/index\.php#', '', $path);
-// Удаляем префикс /APP-B24/api если есть
-$path = preg_replace('#^/APP-B24/api#', '', $path);
-// Удаляем префикс /api если есть
-$path = preg_replace('#^/api#', '', $path);
-// Удаляем index.php если остался
-$path = preg_replace('#/index\.php#', '', $path);
+// Пробуем получить маршрут из query параметров (для nginx)
+$route = $_GET['route'] ?? null;
+$subRoute = $_GET['action'] ?? null;
 
-$segments = array_filter(explode('/', trim($path, '/')));
-$segments = array_values($segments);
+// Если маршрут не в query, пытаемся извлечь из path
+if (!$route) {
+    // Удаляем префикс /APP-B24/api/index.php если есть
+    $path = preg_replace('#^/APP-B24/api/index\.php#', '', $path);
+    // Удаляем префикс /APP-B24/api если есть
+    $path = preg_replace('#^/APP-B24/api#', '', $path);
+    // Удаляем префикс /api если есть
+    $path = preg_replace('#^/api#', '', $path);
+    // Удаляем index.php если остался
+    $path = preg_replace('#/index\.php#', '', $path);
+    
+    $segments = array_filter(explode('/', trim($path, '/')));
+    $segments = array_values($segments);
+    
+    $route = $segments[0] ?? 'index';
+    $subRoute = $segments[1] ?? null;
+}
 
-// Маршрутизация
-$route = $segments[0] ?? 'index';
-$subRoute = $segments[1] ?? null;
 $method = $_SERVER['REQUEST_METHOD'];
 
 // Логирование запроса (для отладки)

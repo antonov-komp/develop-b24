@@ -1,0 +1,20 @@
+# Apache configuration for API routing
+# Если используется Apache, этот файл обеспечит правильную обработку запросов
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /APP-B24/api/
+    
+    # Если запрос не к существующему файлу или директории
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    
+    # Перенаправляем все запросы на index.php
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Если используется nginx, нужна конфигурация в nginx.conf
+# location /APP-B24/api/ {
+#     try_files $uri $uri/ /APP-B24/api/index.php?$query_string;
+# }
+

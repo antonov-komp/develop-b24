@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 // Базовый URL API
-// Используем index.php для правильной работы с nginx
-const API_BASE_URL = '/APP-B24/api/index.php';
+// Используем отдельные файлы для каждого endpoint (обход проблемы с nginx роутингом)
+const API_BASE_URL = '/APP-B24/api';
 
 // Создание экземпляра axios
 const apiClient = axios.create({
@@ -16,6 +16,29 @@ const apiClient = axios.create({
 // Перехватчик запросов
 apiClient.interceptors.request.use(
   (config) => {
+    // Извлекаем маршрут из URL
+    // URL формат: /user/current
+    // Преобразуем в: /user.php?action=current
+    const url = config.url || '';
+    const urlParts = url.split('/').filter(part => part);
+    
+    // Если URL содержит сегменты, используем первый как имя файла
+    if (urlParts.length > 0) {
+      const route = urlParts[0];
+      const action = urlParts[1] || null;
+      
+      // Устанавливаем URL на имя файла PHP
+      config.url = `/${route}.php`;
+      
+      // Добавляем action в query параметры, если есть
+      if (action) {
+        config.params = {
+          ...config.params,
+          action: action
+        };
+      }
+    }
+    
     // Добавление параметров из Bitrix24, если доступны
     const params = new URLSearchParams(window.location.search);
     // Bitrix24 может передавать APP_SID вместо AUTH_ID
@@ -29,6 +52,8 @@ apiClient.interceptors.request.use(
         DOMAIN: domain,
       };
     }
+    
+    console.log('API Request:', config.method?.toUpperCase(), config.baseURL + config.url, config.params);
     
     return config;
   },

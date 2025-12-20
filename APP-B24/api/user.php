@@ -1,15 +1,26 @@
 <?php
 /**
- * API для работы с пользователями
+ * API endpoint для работы с пользователями
  * 
  * Endpoints:
- * - GET /api/user/current - Получение текущего пользователя
+ * - GET ?action=current - Получение текущего пользователя
  * 
- * Параметры: AUTH_ID, DOMAIN (query или POST)
- * Документация: https://context7.com/bitrix24/rest/user.current
+ * Параметры: AUTH_ID (или APP_SID), DOMAIN, action (query)
  */
 
-require_once(__DIR__ . '/../middleware/auth.php');
+header('Content-Type: application/json; charset=UTF-8');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+
+// Обработка preflight запросов
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+require_once(__DIR__ . '/../src/bootstrap.php');
+require_once(__DIR__ . '/middleware/auth.php');
 
 // Проверка авторизации
 $auth = checkApiAuth();
@@ -22,13 +33,11 @@ global $userService, $apiService, $logger;
 $authId = $auth['authId'];
 $domain = $auth['domain'];
 $method = $_SERVER['REQUEST_METHOD'];
-
-// Получаем subRoute из query параметра action или из segments
-$subRoute = $_GET['action'] ?? ($GLOBALS['segments'][1] ?? null);
+$action = $_GET['action'] ?? null;
 
 switch ($method) {
     case 'GET':
-        if ($subRoute === 'current') {
+        if ($action === 'current') {
             try {
                 // Получение текущего пользователя
                 $user = $userService->getCurrentUser($authId, $domain);
@@ -83,8 +92,8 @@ switch ($method) {
             http_response_code(404);
             echo json_encode([
                 'success' => false,
-                'error' => 'Route not found',
-                'message' => "Route 'user/{$subRoute}' not found"
+                'error' => 'Action not found',
+                'message' => "Action '{$action}' not found for user endpoint"
             ], JSON_UNESCAPED_UNICODE);
         }
         break;
