@@ -74,7 +74,12 @@ class AuthService
             return false;
         }
         
-        // Проверяем валидность токена через тестовый запрос к Bitrix24
+        // Если запрос точно из Bitrix24 (есть AUTH_ID и DOMAIN), разрешаем доступ
+        // даже если токен установщика невалиден, так как пользователь работает через свой токен
+        $hasUserToken = !empty($_REQUEST['AUTH_ID']) && !empty($_REQUEST['DOMAIN']);
+        
+        // Проверяем валидность токена установщика через тестовый запрос к Bitrix24
+        // Но если есть токен пользователя - это не критично
         try {
             $testResult = $this->apiService->call('profile');
             
@@ -87,6 +92,15 @@ class AuthService
                     $refreshResult = $this->apiService->call('profile');
                     if (isset($refreshResult['error']) && 
                         in_array($refreshResult['error'], ['invalid_token', 'invalid_grant', 'invalid_client', 'NO_AUTH_FOUND'])) {
+                        // Если есть токен пользователя - разрешаем доступ (токен установщика не критичен)
+                        if ($hasUserToken && $isFromBitrix24) {
+                            $logData['result'] = 'allowed_user_token_available_installer_token_invalid';
+                            $logData['error'] = $refreshResult['error'];
+                            $logData['warning'] = 'Installer token invalid, but user token available';
+                            $this->logger->logAuthCheck('Auth check passed with warning', $logData);
+                            // Пропускаем проверку токена установщика, переходим к проверке прав доступа
+                            goto check_user_access;
+                        }
                         $logData['result'] = 'denied_token_invalid_after_refresh';
                         $logData['error'] = $refreshResult['error'];
                         $this->logger->logAuthCheck('Auth check failed', $logData);
@@ -108,7 +122,8 @@ class AuthService
                     $logData['result'] = 'allowed_token_refreshed';
                     $logData['is_from_bitrix24'] = $isFromBitrix24;
                     $this->logger->logAuthCheck('Auth check passed', $logData);
-                    return true;
+                    // Пропускаем проверку токена установщика, переходим к проверке прав доступа
+                    goto check_user_access;
                 }
                 
                 // Ошибка no_install_app - возможно, settings.json повреждён или содержит тестовые данные
@@ -119,17 +134,32 @@ class AuthService
                     $logData['warning'] = 'Settings.json may be corrupted or contain test data';
                     $this->logger->logAuthCheck('Auth check passed with warning', $logData);
                     // Разрешаем доступ, если запрос точно из Bitrix24
-                    return true;
+                    // Пропускаем проверку токена установщика, переходим к проверке прав доступа
+                    goto check_user_access;
                 }
                 
-                // Другие ошибки авторизации - доступ запрещён
+                // Другие ошибки авторизации токена установщика
                 if (in_array($testResult['error'], ['invalid_token', 'invalid_grant', 'invalid_client', 'NO_AUTH_FOUND'])) {
+                    // Если есть токен пользователя и запрос из Bitrix24 - разрешаем доступ
+                    // Токен установщика не критичен для работы пользователя через iframe
+                    if ($hasUserToken && $isFromBitrix24) {
+                        $logData['result'] = 'allowed_user_token_available_installer_token_invalid';
+                        $logData['error'] = $testResult['error'];
+                        $logData['warning'] = 'Installer token invalid, but user token available';
+                        $this->logger->logAuthCheck('Auth check passed with warning', $logData);
+                        // Пропускаем проверку токена установщика, переходим к проверке прав доступа
+                        goto check_user_access;
+                    }
+                    // Если нет токена пользователя - блокируем доступ
                     $logData['result'] = 'denied_token_invalid';
                     $logData['error'] = $testResult['error'];
                     $this->logger->logAuthCheck('Auth check failed', $logData);
                     return false;
                 }
             }
+            
+            // Метка для перехода к проверке прав доступа
+            check_user_access:
             
             // Если запрос успешен - проверяем права доступа (если включена проверка)
             $currentUserAuthId = $_REQUEST['AUTH_ID'] ?? null;
@@ -166,7 +196,7 @@ class AuthService
                             $logData['result'] = 'denied_no_access_rights';
                             $logData['user_id'] = $userId;
                             $this->logger->logAuthCheck('Auth check failed - no access rights', $logData);
-                            $this->redirectToFailure();
+                            $this->redirectToFailure('no_access_rights');
                             return false;
                         }
                     }
@@ -237,8 +267,10 @@ class AuthService
     
     /**
      * Редирект на страницу ошибки доступа
+     * 
+     * @param string $reason Причина блокировки доступа ('direct_access' или 'no_access_rights')
      */
-    public function redirectToFailure(): void
+    public function redirectToFailure(string $reason = 'direct_access'): void
     {
         // Определяем протокол (HTTP или HTTPS)
         $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
@@ -257,12 +289,13 @@ class AuthService
             $failurePath = $scriptPath . '/failure.php';
         }
         
-        // Формируем абсолютный URL для failure.php
-        $failureUrl = $protocol . '://' . $host . $failurePath;
+        // Формируем абсолютный URL для failure.php с параметром причины
+        $failureUrl = $protocol . '://' . $host . $failurePath . '?reason=' . urlencode($reason);
         
         // Логирование для отладки
         $this->logger->log('Redirecting to failure page', [
             'url' => $failureUrl,
+            'reason' => $reason,
             'script_path' => $scriptPath,
             'host' => $host,
             'protocol' => $protocol

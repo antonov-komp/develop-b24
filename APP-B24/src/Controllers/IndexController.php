@@ -277,11 +277,23 @@ class IndexController extends BaseController
             } else {
                 // Используем метод user.admin через токен установщика
                 $adminCheckResult = $this->apiService->call('user.admin', []);
-                $isAdmin = isset($adminCheckResult['result']) && (
-                    $adminCheckResult['result'] === true || 
-                    $adminCheckResult['result'] === 'true' || 
-                    $adminCheckResult['result'] == 1
-                );
+                if (isset($adminCheckResult['result'])) {
+                    $resultValue = $adminCheckResult['result'];
+                    // Если result - это массив, берем первый элемент
+                    if (is_array($resultValue) && !empty($resultValue)) {
+                        $resultValue = $resultValue[0];
+                    }
+                    $isAdmin = (
+                        $resultValue === true || 
+                        $resultValue === 'true' || 
+                        $resultValue == 1 || 
+                        $resultValue === 1 ||
+                        $resultValue === 'Y' || 
+                        $resultValue === 'y'
+                    );
+                } else {
+                    $isAdmin = false;
+                }
             }
         }
         

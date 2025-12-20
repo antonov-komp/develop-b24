@@ -85,14 +85,55 @@ class Bitrix24ApiService
             $this->logger->log('User.current API response (SDK)', [
                 'has_result' => isset($result['result']),
                 'has_error' => isset($result['error']),
+                'result_type' => isset($result['result']) ? gettype($result['result']) : 'null',
+                'result_is_array' => isset($result['result']) && is_array($result['result']),
+                'result_keys' => isset($result['result']) && is_array($result['result']) ? array_keys($result['result']) : [],
                 'timestamp' => date('Y-m-d H:i:s')
             ], 'info');
             
-            if (isset($result['error']) || !isset($result['result'])) {
+            // Проверка на ошибку
+            if (isset($result['error'])) {
+                $this->logger->logError('User.current API returned error', [
+                    'error' => $result['error'],
+                    'error_description' => $result['error_description'] ?? null
+                ]);
                 return null;
             }
             
-            return $result['result'];
+            // Проверка наличия результата
+            if (!isset($result['result'])) {
+                $this->logger->logError('User.current API returned no result', [
+                    'result_keys' => array_keys($result)
+                ]);
+                return null;
+            }
+            
+            $userData = $result['result'];
+            
+            // Проверка типа: должен быть массив
+            if (!is_array($userData)) {
+                $this->logger->logError('User.current API returned non-array result', [
+                    'result_type' => gettype($userData),
+                    'result' => $userData
+                ]);
+                return null;
+            }
+            
+            // Проверка на пустой массив (это тоже ошибка для user.current)
+            if (empty($userData)) {
+                $this->logger->logError('User.current API returned empty array', []);
+                return null;
+            }
+            
+            // Проверка наличия ID пользователя (обязательное поле)
+            if (!isset($userData['ID']) || empty($userData['ID'])) {
+                $this->logger->logError('User.current API returned user without ID', [
+                    'result_keys' => array_keys($userData)
+                ]);
+                return null;
+            }
+            
+            return $userData;
         } catch (Bitrix24ApiException $e) {
             $this->logger->logError('User.current API error (SDK)', [
                 'error' => $e->getApiError(),
@@ -386,7 +427,12 @@ class Bitrix24ApiService
             try {
                 $adminCheckResult = $this->call('user.admin', []);
                 if (isset($adminCheckResult['result'])) {
-                    return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
+                    $resultValue = $adminCheckResult['result'];
+                    // Если result - это массив, берем первый элемент
+                    if (is_array($resultValue) && !empty($resultValue)) {
+                        $resultValue = $resultValue[0];
+                    }
+                    return ($resultValue === true || $resultValue === 'true' || $resultValue == 1 || $resultValue === 1);
                 }
             } catch (\Exception $e) {
                 $this->logger->logError('Error checking admin status with installer token (SDK)', [
@@ -407,8 +453,49 @@ class Bitrix24ApiService
             // Вызываем через SDK
             $result = $this->client->call('user.admin', []);
             
+            // Логирование результата для отладки
+            $this->logger->log('User.admin API response (SDK)', [
+                'has_result' => isset($result['result']),
+                'result_type' => isset($result['result']) ? gettype($result['result']) : 'null',
+                'result_value' => isset($result['result']) ? var_export($result['result'], true) : 'null',
+                'result_raw' => $result,
+                'timestamp' => date('Y-m-d H:i:s')
+            ], 'info');
+            
             if (isset($result['result'])) {
-                return ($result['result'] === true || $result['result'] === 'true' || $result['result'] == 1);
+                // Метод user.admin возвращает массив [true] или [false], а не просто true/false
+                $resultValue = $result['result'];
+                
+                // Если result - это массив, берем первый элемент
+                if (is_array($resultValue) && !empty($resultValue)) {
+                    $resultValue = $resultValue[0];
+                }
+                
+                // Проверяем значение
+                $isAdmin = (
+                    $resultValue === true || 
+                    $resultValue === 'true' || 
+                    $resultValue == 1 || 
+                    $resultValue === 1 ||
+                    $resultValue === 'Y' || 
+                    $resultValue === 'y' ||
+                    $resultValue === 'yes' ||
+                    $resultValue === 'YES'
+                );
+                
+                $this->logger->log('User.admin check result', [
+                    'is_admin' => $isAdmin,
+                    'result_value' => var_export($resultValue, true),
+                    'result_type' => gettype($resultValue),
+                    'original_result' => var_export($result['result'], true)
+                ], 'info');
+                
+                return $isAdmin;
+            } else {
+                $this->logger->logError('User.admin API returned no result', [
+                    'result_keys' => array_keys($result),
+                    'full_result' => $result
+                ]);
             }
             
             // Fallback: через токен установщика
@@ -416,7 +503,12 @@ class Bitrix24ApiService
                 $this->client->initializeWithInstallerToken();
                 $adminCheckResult = $this->client->call('user.admin', []);
                 if (isset($adminCheckResult['result'])) {
-                    return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
+                    $resultValue = $adminCheckResult['result'];
+                    // Если result - это массив, берем первый элемент
+                    if (is_array($resultValue) && !empty($resultValue)) {
+                        $resultValue = $resultValue[0];
+                    }
+                    return ($resultValue === true || $resultValue === 'true' || $resultValue == 1 || $resultValue === 1);
                 }
             } catch (Bitrix24ApiException $e) {
                 $this->logger->logError('User.admin API error (fallback)', [

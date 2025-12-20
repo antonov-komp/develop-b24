@@ -29,13 +29,29 @@ class UserService
      */
     public function getCurrentUser(string $authId, string $domain): ?array
     {
-        $result = $this->apiService->getCurrentUser($authId, $domain);
+        // Bitrix24ApiService::getCurrentUser() уже возвращает данные пользователя напрямую (или null)
+        $user = $this->apiService->getCurrentUser($authId, $domain);
         
-        if (isset($result['error']) || !isset($result['result'])) {
+        // Логирование для отладки
+        $this->logger->log('UserService::getCurrentUser result', [
+            'has_user' => !is_null($user),
+            'is_array' => is_array($user),
+            'is_empty' => is_array($user) && empty($user),
+            'user_keys' => is_array($user) ? array_keys($user) : [],
+            'user_id' => is_array($user) && isset($user['ID']) ? $user['ID'] : null
+        ], 'info');
+        
+        // Проверяем, что получили валидные данные пользователя
+        if (!$user || !is_array($user) || empty($user)) {
+            $this->logger->logError('UserService::getCurrentUser returned null or invalid data', [
+                'user_type' => gettype($user),
+                'is_array' => is_array($user),
+                'is_empty' => is_array($user) && empty($user)
+            ]);
             return null;
         }
         
-        return $result['result'];
+        return $user;
     }
     
     /**
@@ -64,6 +80,15 @@ class UserService
      */
     public function isAdmin(array $user, string $authId, string $domain): bool
     {
+        // Логирование для отладки
+        $this->logger->log('UserService::isAdmin check', [
+            'user_id' => $user['ID'] ?? null,
+            'has_admin_field' => isset($user['ADMIN']),
+            'admin_value' => $user['ADMIN'] ?? null,
+            'has_is_admin_field' => isset($user['IS_ADMIN']),
+            'is_admin_value' => $user['IS_ADMIN'] ?? null
+        ], 'info');
+        
         // Сначала проверяем поле ADMIN в данных пользователя
         if (isset($user['ADMIN'])) {
             $adminValue = $user['ADMIN'];
@@ -77,6 +102,10 @@ class UserService
             );
             
             if ($isAdmin) {
+                $this->logger->log('UserService::isAdmin - admin from ADMIN field', [
+                    'user_id' => $user['ID'] ?? null,
+                    'admin_value' => $adminValue
+                ], 'info');
                 return true;
             }
         }
@@ -85,12 +114,24 @@ class UserService
         if (isset($user['IS_ADMIN'])) {
             $isAdmin = ($user['IS_ADMIN'] === 'Y' || $user['IS_ADMIN'] == 1 || $user['IS_ADMIN'] === true);
             if ($isAdmin) {
+                $this->logger->log('UserService::isAdmin - admin from IS_ADMIN field', [
+                    'user_id' => $user['ID'] ?? null,
+                    'is_admin_value' => $user['IS_ADMIN']
+                ], 'info');
                 return true;
             }
         }
         
         // Если поле ADMIN отсутствует, используем метод user.admin для проверки
-        return $this->apiService->checkIsAdmin($authId, $domain);
+        $this->logger->log('UserService::isAdmin - checking via user.admin API', [
+            'user_id' => $user['ID'] ?? null
+        ], 'info');
+        $isAdmin = $this->apiService->checkIsAdmin($authId, $domain);
+        $this->logger->log('UserService::isAdmin - result from user.admin API', [
+            'user_id' => $user['ID'] ?? null,
+            'is_admin' => $isAdmin
+        ], 'info');
+        return $isAdmin;
     }
     
     /**
