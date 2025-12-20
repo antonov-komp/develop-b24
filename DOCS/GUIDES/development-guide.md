@@ -21,7 +21,7 @@
 
 2. **Проверьте сервер:**
    ```bash
-   php APP-B24/checkserver.php
+   php APP-B24/tools/checkserver.php
    ```
 
 ### 2. Первый API-запрос
@@ -46,7 +46,7 @@ echo '</pre>';
 - `APP-B24/settings.php` — настройки приложения
 - `APP-B24/index.php` — точка входа
 - `APP-B24/install.php` — установка приложения
-- `APP-B24/checkserver.php` — проверка сервера
+- `APP-B24/tools/checkserver.php` — проверка сервера
 
 ### Логи
 - `APP-B24/logs/` — директория для логов

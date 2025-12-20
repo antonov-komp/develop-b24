@@ -23,6 +23,8 @@ APP-B24/
 │   ├── Helpers/                   # Вспомогательные классы
 │   └── bootstrap.php              # Инициализация сервисов
 ├── templates/                     # HTML-шаблоны
+├── tools/                         # Утилиты для отладки
+│   └── checkserver.php            # Проверка сервера
 ├── index.php                      # Главная страница
 ├── access-control.php             # Управление правами доступа
 ├── token-analysis.php             # Анализ токена
