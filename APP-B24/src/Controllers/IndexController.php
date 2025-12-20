@@ -92,7 +92,12 @@ class IndexController extends BaseController
      */
     public function index(): void
     {
-        // Проверка авторизации Bitrix24 (уже выполнена в auth-check.php)
+        // Проверка авторизации Bitrix24
+        if (!$this->authService->checkBitrix24Auth()) {
+            $this->authService->redirectToFailure();
+            return;
+        }
+        
         // Проверка, идет ли запрос из Bitrix24 (через iframe)
         $isFromBitrix24 = $this->authService->isRequestFromBitrix24();
         

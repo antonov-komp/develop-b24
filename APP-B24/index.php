@@ -8,8 +8,6 @@
  * Документация: https://context7.com/bitrix24/rest/
  */
 
-require_once(__DIR__ . '/auth-check.php');
-
 // Подключение и инициализация сервисов
 require_once(__DIR__ . '/src/bootstrap.php');
 
