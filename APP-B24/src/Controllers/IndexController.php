@@ -213,16 +213,28 @@ class IndexController extends BaseController
             $user = $userResult['result'] ?? null;
             
             // Для токена установщика тоже пытаемся получить ADMIN через user.get
-            if ($user && !isset($user['ADMIN']) && isset($user['ID'])) {
+            if ($user && !isset($user['ADMIN']) && !isset($user['IS_ADMIN']) && isset($user['ID'])) {
                 $userId = $user['ID'];
                 $getUserResult = $this->apiService->call('user.get', [
                     'ID' => $userId,
-                    'select' => ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'ADMIN', 'PERSONAL_PHOTO', 'TIME_ZONE', 'UF_DEPARTMENT']
+                    'select' => ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'ADMIN', 'IS_ADMIN', 'PERSONAL_PHOTO', 'TIME_ZONE', 'UF_DEPARTMENT']
                 ]);
                 
                 if (isset($getUserResult['result'][0]) && is_array($getUserResult['result'][0])) {
                     $user = array_merge($user, $getUserResult['result'][0]);
+                } elseif (isset($getUserResult['result']) && is_array($getUserResult['result']) && isset($getUserResult['result']['ID'])) {
+                    // Если результат - один объект, а не массив
+                    $user = array_merge($user, $getUserResult['result']);
                 }
+                
+                // Логирование для отладки
+                $this->logger->log('User data after user.get (installer token)', [
+                    'user_id' => $userId,
+                    'has_admin' => isset($user['ADMIN']),
+                    'admin_value' => $user['ADMIN'] ?? 'not_set',
+                    'has_is_admin' => isset($user['IS_ADMIN']),
+                    'is_admin_value' => $user['IS_ADMIN'] ?? 'not_set'
+                ], 'info');
             }
         }
         
@@ -245,7 +257,35 @@ class IndexController extends BaseController
         $userFullName = $this->userService->getUserFullName($user);
         
         // Проверка статуса администратора через UserService
-        $isAdmin = $this->userService->isAdmin($user, $currentUserAuthId ?? '', $portalDomain ?? '');
+        // Если нет токена текущего пользователя, используем токен установщика для проверки
+        if ($isCurrentUserToken && $currentUserAuthId) {
+            // Используем токен текущего пользователя
+            $isAdmin = $this->userService->isAdmin($user, $currentUserAuthId, $portalDomain ?? '');
+        } else {
+            // Используем токен установщика - проверяем через user.admin API
+            // Сначала проверяем поле ADMIN в данных пользователя
+            if (isset($user['ADMIN'])) {
+                $adminValue = $user['ADMIN'];
+                $isAdmin = (
+                    $adminValue === 'Y' || 
+                    $adminValue === 'y' || 
+                    $adminValue == 1 || 
+                    $adminValue === 1 || 
+                    $adminValue === true ||
+                    $adminValue === '1'
+                );
+            } elseif (isset($user['IS_ADMIN'])) {
+                $isAdmin = ($user['IS_ADMIN'] === 'Y' || $user['IS_ADMIN'] == 1 || $user['IS_ADMIN'] === true);
+            } else {
+                // Используем метод user.admin через токен установщика
+                $adminCheckResult = $this->apiService->call('user.admin', []);
+                $isAdmin = isset($adminCheckResult['result']) && (
+                    $adminCheckResult['result'] === true || 
+                    $adminCheckResult['result'] === 'true' || 
+                    $adminCheckResult['result'] == 1
+                );
+            }
+        }
         
         // Логирование для отладки
         $adminDebugLog = [

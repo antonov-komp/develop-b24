@@ -417,13 +417,28 @@ class Bitrix24ApiService
      * Метод: user.admin
      * Документация: https://context7.com/bitrix24/rest/user.admin
      * 
-     * @param string $authId Токен авторизации
-     * @param string $domain Домен портала
+     * @param string $authId Токен авторизации (если пустой, используется токен установщика)
+     * @param string $domain Домен портала (если пустой, используется из настроек)
      * @return bool true если администратор
      */
     public function checkIsAdmin(string $authId, string $domain): bool
     {
-        if (empty($authId) || empty($domain)) {
+        // Если токен пустой, используем токен установщика через call()
+        if (empty($authId)) {
+            try {
+                $adminCheckResult = $this->call('user.admin', []);
+                if (isset($adminCheckResult['result'])) {
+                    return ($adminCheckResult['result'] === true || $adminCheckResult['result'] === 'true' || $adminCheckResult['result'] == 1);
+                }
+            } catch (\Exception $e) {
+                $this->logger->logError('Error checking admin status with installer token', [
+                    'exception' => $e->getMessage()
+                ]);
+            }
+            return false;
+        }
+        
+        if (empty($domain)) {
             return false;
         }
         

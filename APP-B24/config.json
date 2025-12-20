@@ -1,6 +1,6 @@
 {
   "index_page": {
-    "enabled": false,
+    "enabled": true,
     "message": "Интерфейс приложения временно недоступен. Пожалуйста, попробуйте позже.",
     "last_updated": "2025-12-19 14:07:00",
     "updated_by": "system"
