@@ -62,29 +62,36 @@ function loadVueApp(?string $initialRoute = null): void
     // Пути в index.html уже правильные (содержат /APP-B24/public/dist/)
     // Не нужно их заменять, только добавляем/обновляем base tag
     
-    // Добавляем base tag, если его нет, или обновляем существующий
-    if (strpos($html, '<base') === false) {
-        // Вставляем base tag после <head>
-        $html = str_replace('<head>', '<head><base href="/APP-B24/">', $html);
-    } else {
-        // Заменяем существующий base tag
-        $html = preg_replace('/<base[^>]*>/', '<base href="/APP-B24/">', $html);
-    }
+    // НЕ добавляем base tag, так как пути уже абсолютные
+    // Base tag может конфликтовать с абсолютными путями в iframe
     
-    // Добавляем отладочный скрипт для проверки загрузки (только в development)
-    if ($appEnv === 'development') {
-        $debugScript = '
-        <script>
-            console.log("Vue.js app loading...", {
-                base: document.querySelector("base")?.href,
-                scripts: Array.from(document.querySelectorAll("script")).map(s => s.src),
-                styles: Array.from(document.querySelectorAll("link[rel=stylesheet]")).map(l => l.href),
-                appElement: document.querySelector("#app")
-            });
-        </script>
-        ';
-        $html = str_replace('</head>', $debugScript . '</head>', $html);
-    }
+    // Добавляем отладочный скрипт для проверки загрузки (временно в production тоже)
+    $debugScript = '
+    <script>
+        console.log("=== Vue.js App Debug ===");
+        console.log("Location:", window.location.href);
+        console.log("Base tag:", document.querySelector("base")?.href || "none");
+        console.log("Scripts:", Array.from(document.querySelectorAll("script")).map(s => s.src));
+        console.log("Styles:", Array.from(document.querySelectorAll("link[rel=stylesheet]")).map(l => l.href));
+        console.log("App element:", document.querySelector("#app"));
+        
+        // Проверка загрузки скриптов
+        window.addEventListener("error", function(e) {
+            console.error("Script load error:", e.filename, e.message);
+        });
+        
+        // Проверка, что Vue.js загрузился
+        setTimeout(function() {
+            const app = document.querySelector("#app");
+            if (app && !app.__vue_app__) {
+                console.error("Vue.js app not mounted after 2 seconds!");
+            } else if (app && app.__vue_app__) {
+                console.log("Vue.js app mounted successfully");
+            }
+        }, 2000);
+    </script>
+    ';
+    $html = str_replace('</head>', $debugScript . '</head>', $html);
     
     // Если указан начальный маршрут, добавляем скрипт для навигации
     if ($initialRoute && $initialRoute !== '/') {

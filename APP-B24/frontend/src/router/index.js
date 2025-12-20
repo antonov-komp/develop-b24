@@ -35,8 +35,21 @@ const routes = [
   }
 ];
 
+// Определяем базовый путь динамически
+// Если мы в iframe Bitrix24, используем текущий путь
+const getBasePath = () => {
+  const path = window.location.pathname;
+  // Если путь содержит /APP-B24/, используем его
+  if (path.includes('/APP-B24/')) {
+    const match = path.match(/^(\/APP-B24\/)/);
+    return match ? match[1] : '/APP-B24/';
+  }
+  // Иначе используем дефолтный путь
+  return '/APP-B24/';
+};
+
 const router = createRouter({
-  history: createWebHistory('/APP-B24/'), // Базовый путь для приложения
+  history: createWebHistory(getBasePath()), // Базовый путь для приложения
   routes,
   // Сохраняем query параметры при навигации
   parseQuery: (query) => {
