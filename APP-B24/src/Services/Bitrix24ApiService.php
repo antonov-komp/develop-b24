@@ -108,27 +108,12 @@ class Bitrix24ApiService
                 $errorCode = $result['error'] ?? 'UNKNOWN';
                 $errorDescription = $result['error_description'] ?? 'No description';
                 
-                $this->logger->logError('User.current API returned error (SDK), trying direct REST API', [
+                $this->logger->logError('User.current API returned error (SDK)', [
                     'error' => $errorCode,
                     'error_description' => $errorDescription,
                     'domain' => $domain,
                     'auth_id_length' => strlen($authId)
                 ]);
-                
-                // Fallback: попытка прямого REST API вызова
-                $this->logger->log('Trying direct REST API call as fallback', [
-                    'domain' => $domain,
-                    'auth_id_length' => strlen($authId)
-                ], 'info');
-                
-                $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
-                if ($directResult !== null) {
-                    $this->logger->log('Direct REST API call successful', [
-                        'has_result' => isset($directResult['result']),
-                        'domain' => $domain
-                    ], 'info');
-                    return $directResult['result'] ?? null;
-                }
                 
                 // Логируем детальную информацию об ошибке
                 if ($errorCode === 'INVALID_TOKEN' || $errorCode === 'expired_token') {
@@ -186,40 +171,65 @@ class Bitrix24ApiService
             
             return $userData;
         } catch (Bitrix24ApiException $e) {
-            $this->logger->logError('User.current API error (SDK), trying direct REST API', [
+            // Проверяем, является ли ошибка критической (network, timeout)
+            $isCriticalError = $this->isCriticalError($e);
+            
+            $this->logger->logError('User.current API error (SDK)', [
                 'error' => $e->getApiError(),
                 'error_description' => $e->getApiErrorDescription(),
                 'message' => $e->getMessage(),
                 'domain' => $domain,
-                'auth_id_length' => strlen($authId)
+                'auth_id_length' => strlen($authId),
+                'is_critical' => $isCriticalError
             ]);
             
-            // Fallback: прямой REST API вызов
-            $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
-            if ($directResult !== null && isset($directResult['result'])) {
-                $this->logger->log('Direct REST API call successful (fallback)', [
-                    'has_result' => isset($directResult['result']),
-                    'domain' => $domain
-                ], 'info');
-                return $directResult['result'];
+            // Fallback только для критических ошибок (network, timeout)
+            if ($isCriticalError) {
+                $this->logger->log('Trying direct REST API call as fallback for critical error', [
+                    'domain' => $domain,
+                    'auth_id_length' => strlen($authId),
+                    'error_type' => $e->getApiError()
+                ], 'warning');
+                
+                $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
+                if ($directResult !== null && isset($directResult['result'])) {
+                    $this->logger->log('Direct REST API call successful (fallback)', [
+                        'has_result' => isset($directResult['result']),
+                        'domain' => $domain
+                    ], 'info');
+                    return $directResult['result'];
+                }
             }
             
             return null;
         } catch (\Exception $e) {
-            $this->logger->logError('User.current API exception (SDK), trying direct REST API', [
+            // Проверяем, является ли ошибка критической (network, timeout)
+            $isCriticalError = $this->isCriticalNetworkError($e);
+            
+            $this->logger->logError('User.current API exception (SDK)', [
                 'exception' => $e->getMessage(),
+                'exception_class' => get_class($e),
                 'domain' => $domain,
-                'auth_id_length' => strlen($authId)
+                'auth_id_length' => strlen($authId),
+                'is_critical' => $isCriticalError
             ]);
             
-            // Fallback: прямой REST API вызов
-            $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
-            if ($directResult !== null && isset($directResult['result'])) {
-                $this->logger->log('Direct REST API call successful (fallback)', [
-                    'has_result' => isset($directResult['result']),
-                    'domain' => $domain
-                ], 'info');
-                return $directResult['result'];
+            // Fallback только для критических ошибок (network, timeout)
+            if ($isCriticalError) {
+                $this->logger->log('Trying direct REST API call as fallback for critical error', [
+                    'domain' => $domain,
+                    'auth_id_length' => strlen($authId),
+                    'exception_type' => get_class($e)
+                ], 'warning');
+                
+                $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
+                if ($directResult !== null && isset($directResult['result'])) {
+                    $this->logger->log('Direct REST API call successful (fallback)', [
+                        'has_result' => isset($directResult['result']),
+                        'domain' => $domain
+                    ], 'info');
+                    return $directResult['result'];
+                }
             }
             
             return null;
@@ -227,9 +237,69 @@ class Bitrix24ApiService
     }
     
     /**
+     * Проверка, является ли ошибка критической (network, timeout)
+     * 
+     * @param Bitrix24ApiException $e Исключение
+     * @return bool true если ошибка критическая
+     */
+    private function isCriticalError(Bitrix24ApiException $e): bool
+    {
+        $errorCode = $e->getApiError() ?? '';
+        $message = strtolower($e->getMessage());
+        
+        // Критические ошибки: network, timeout, transport
+        $criticalPatterns = [
+            'transport',
+            'timeout',
+            'network',
+            'connection',
+            'dns',
+            'curl'
+        ];
+        
+        foreach ($criticalPatterns as $pattern) {
+            if (stripos($errorCode, $pattern) !== false || stripos($message, $pattern) !== false) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Проверка, является ли исключение критической ошибкой сети
+     * 
+     * @param \Exception $e Исключение
+     * @return bool true если ошибка критическая
+     */
+    private function isCriticalNetworkError(\Exception $e): bool
+    {
+        $message = strtolower($e->getMessage());
+        $className = strtolower(get_class($e));
+        
+        // Критические ошибки: network, timeout, transport
+        $criticalPatterns = [
+            'transport',
+            'timeout',
+            'network',
+            'connection',
+            'dns',
+            'curl'
+        ];
+        
+        foreach ($criticalPatterns as $pattern) {
+            if (stripos($message, $pattern) !== false || stripos($className, $pattern) !== false) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
      * Прямой вызов Bitrix24 REST API через HTTP
      * 
-     * Используется как fallback, если SDK не работает
+     * Используется как fallback только для критических ошибок (network, timeout)
      * 
      * @param string $method Метод API
      * @param string $authId Токен авторизации
@@ -430,11 +500,17 @@ class Bitrix24ApiService
             
             if (isset($result['error']) || !isset($result['result'])) {
                 // Fallback: пробуем через токен установщика
+                // Это не критическая ошибка сети, а альтернативный способ авторизации
+                // Токен установщика может иметь права, которых нет у токена пользователя
                 try {
+                    $this->logger->log('Trying department.get with installer token (fallback)', [
+                        'reason' => 'User token failed, trying installer token'
+                    ], 'info');
+                    
                     $this->client->initializeWithInstallerToken();
                     $result = $this->client->call('department.get', []);
                 } catch (Bitrix24ApiException $e) {
-                    $this->logger->logError('Department.get API error (fallback)', [
+                    $this->logger->logError('Department.get API error (fallback to installer token failed)', [
                         'error' => $e->getApiError(),
                         'error_description' => $e->getApiErrorDescription()
                     ]);
@@ -512,11 +588,17 @@ class Bitrix24ApiService
             
             if (isset($result['error']) || !isset($result['result'])) {
                 // Fallback: пробуем через токен установщика
+                // Это не критическая ошибка сети, а альтернативный способ авторизации
+                // Токен установщика может иметь права, которых нет у токена пользователя
                 try {
+                    $this->logger->log('Trying user.get with installer token (fallback)', [
+                        'reason' => 'User token failed, trying installer token'
+                    ], 'info');
+                    
                     $this->client->initializeWithInstallerToken();
                     $result = $this->client->call('user.get', $params);
                 } catch (Bitrix24ApiException $e) {
-                    $this->logger->logError('User.get API error (fallback)', [
+                    $this->logger->logError('User.get API error (fallback to installer token failed)', [
                         'error' => $e->getApiError(),
                         'error_description' => $e->getApiErrorDescription()
                     ]);
@@ -648,7 +730,13 @@ class Bitrix24ApiService
             }
             
             // Fallback: через токен установщика
+            // Это не критическая ошибка сети, а альтернативный способ авторизации
+            // Токен установщика может иметь права, которых нет у токена пользователя
             try {
+                $this->logger->log('Trying user.admin with installer token (fallback)', [
+                    'reason' => 'User token failed, trying installer token'
+                ], 'info');
+                
                 $this->client->initializeWithInstallerToken();
                 $adminCheckResult = $this->client->call('user.admin', []);
                 if (isset($adminCheckResult['result'])) {
@@ -660,7 +748,7 @@ class Bitrix24ApiService
                     return ($resultValue === true || $resultValue === 'true' || $resultValue == 1 || $resultValue === 1);
                 }
             } catch (Bitrix24ApiException $e) {
-                $this->logger->logError('User.admin API error (fallback)', [
+                $this->logger->logError('User.admin API error (fallback to installer token failed)', [
                     'error' => $e->getApiError(),
                     'error_description' => $e->getApiErrorDescription()
                 ]);

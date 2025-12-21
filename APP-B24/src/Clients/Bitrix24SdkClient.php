@@ -324,57 +324,148 @@ class Bitrix24SdkClient implements ApiClientInterface
                 }
             }
             
-            // Логирование успеха
-            $this->logger->log('Bitrix24 API success (SDK)', [
+            // Логирование успеха с детальной информацией
+            $resultInfo = [
                 'method' => $method,
-                'execution_time_ms' => $executionTime
-            ], 'info');
+                'execution_time_ms' => $executionTime,
+                'has_result' => isset($result['result']),
+                'result_type' => isset($result['result']) ? gettype($result['result']) : 'null',
+            ];
+            
+            // Если result - массив, добавляем информацию о количестве элементов
+            if (isset($result['result']) && is_array($result['result'])) {
+                $resultInfo['result_count'] = count($result['result']);
+            }
+            
+            // Добавляем информацию о пагинации
+            if (isset($result['total'])) {
+                $resultInfo['pagination'] = [
+                    'total' => $result['total'],
+                    'has_next' => isset($result['next'])
+                ];
+            }
+            
+            $this->logger->log('Bitrix24 API success (SDK)', $resultInfo, 'info');
             
             return $result;
         } catch (BaseException $e) {
             $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+            
+            // Инициализация переменных для ошибок
+            $errorCode = 'UNKNOWN_ERROR';
+            $errorDescription = $e->getMessage();
             
             // Детальное логирование исключения
             $exceptionDetails = [
                 'method' => $method,
                 'exception' => $e->getMessage(),
                 'exception_class' => get_class($e),
-                'execution_time_ms' => $executionTime
+                'execution_time_ms' => $executionTime,
+                'response_structure' => [
+                    'has_getResponse' => method_exists($e, 'getResponse'),
+                    'response_class' => method_exists($e, 'getResponse') ? get_class($e->getResponse()) : null,
+                ]
             ];
             
-            // Пытаемся извлечь детальную информацию об ошибке
-            if (method_exists($e, 'getResponse')) {
-                try {
+            // Пытаемся извлечь ошибку из response
+            try {
+                // Проверяем, есть ли метод getResponse() у исключения
+                if (method_exists($e, 'getResponse')) {
                     $response = $e->getResponse();
-                    if ($response) {
-                        $exceptionDetails['response_data'] = $response->getResponseData();
-                        $exceptionDetails['error_code'] = method_exists($response, 'getError') ? $response->getError() : null;
-                        $exceptionDetails['error_description'] = method_exists($response, 'getErrorDescription') ? $response->getErrorDescription() : null;
+                    if ($response && method_exists($response, 'getHttpResponse')) {
+                        // Получаем HTTP response
+                        $httpResponse = $response->getHttpResponse();
+                        if ($httpResponse && method_exists($httpResponse, 'toArray')) {
+                            try {
+                                // Получаем response body как массив
+                                $responseBody = $httpResponse->toArray(true);
+                                
+                                // Извлекаем error и error_description
+                                if (isset($responseBody['error'])) {
+                                    $errorCode = $responseBody['error'];
+                                }
+                                if (isset($responseBody['error_description'])) {
+                                    $errorDescription = $responseBody['error_description'];
+                                }
+                                
+                                $exceptionDetails['extracted_from_response'] = [
+                                    'error' => $errorCode,
+                                    'error_description' => $errorDescription,
+                                    'response_body_keys' => array_keys($responseBody)
+                                ];
+                            } catch (\Exception $toArrayException) {
+                                // Если toArray() не работает, пробуем получить content напрямую
+                                try {
+                                    if (method_exists($httpResponse, 'getContent')) {
+                                        $content = $httpResponse->getContent(false);
+                                        if ($content) {
+                                            $responseBody = json_decode($content, true);
+                                            if (json_last_error() === JSON_ERROR_NONE && is_array($responseBody)) {
+                                                if (isset($responseBody['error'])) {
+                                                    $errorCode = $responseBody['error'];
+                                                }
+                                                if (isset($responseBody['error_description'])) {
+                                                    $errorDescription = $responseBody['error_description'];
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (\Exception $contentException) {
+                                    $exceptionDetails['content_extraction_error'] = $contentException->getMessage();
+                                }
+                            }
+                            
+                            // Логируем HTTP status code
+                            if (method_exists($httpResponse, 'getStatusCode')) {
+                                $exceptionDetails['http_status_code'] = $httpResponse->getStatusCode();
+                            }
+                        }
                     }
-                } catch (\Exception $responseException) {
-                    // Игнорируем ошибки при получении response
+                }
+            } catch (\Exception $extractException) {
+                // Логируем, но продолжаем с дефолтными значениями
+                $exceptionDetails['extraction_error'] = $extractException->getMessage();
+                $this->logger->logError('Failed to extract error from SDK response', [
+                    'exception' => $extractException->getMessage(),
+                    'original_exception' => $e->getMessage()
+                ]);
+            }
+            
+            // Если не удалось извлечь из response, пытаемся извлечь из сообщения исключения
+            if ($errorCode === 'UNKNOWN_ERROR') {
+                // Пытаемся извлечь код ошибки из сообщения
+                if (preg_match('/UNAUTHORIZED/i', $e->getMessage())) {
+                    $errorCode = 'UNAUTHORIZED';
+                    $errorDescription = 'Unauthorized request - token may be invalid or expired';
+                } elseif (preg_match('/wrong_client/i', $e->getMessage())) {
+                    $errorCode = 'WRONG_CLIENT';
+                    $errorDescription = 'Wrong client - ApplicationProfile may be incorrect';
+                } elseif (preg_match('/method.*not.*found/i', $e->getMessage())) {
+                    $errorCode = 'ERROR_METHOD_NOT_FOUND';
+                } elseif (preg_match('/access.*denied/i', $e->getMessage())) {
+                    $errorCode = 'ACCESS_DENIED';
+                } elseif (preg_match('/invalid.*token/i', $e->getMessage())) {
+                    $errorCode = 'INVALID_TOKEN';
+                } elseif (preg_match('/expired.*token/i', $e->getMessage())) {
+                    $errorCode = 'EXPIRED_TOKEN';
                 }
             }
             
+            // Добавляем извлеченные ошибки в детали исключения
+            $exceptionDetails['extracted_error'] = [
+                'code' => $errorCode,
+                'description' => $errorDescription
+            ];
+            
             $this->logger->logError('Bitrix24 API exception (SDK)', $exceptionDetails);
             
-            // Преобразуем исключение SDK в наш формат с детальной информацией
-            $errorCode = 'UNKNOWN_ERROR';
-            $errorDescription = $e->getMessage();
-            
-            // Пытаемся извлечь код ошибки из сообщения
-            if (preg_match('/UNAUTHORIZED/i', $e->getMessage())) {
-                $errorCode = 'UNAUTHORIZED';
-                $errorDescription = 'Unauthorized request - token may be invalid or expired';
-            } elseif (preg_match('/wrong_client/i', $e->getMessage())) {
-                $errorCode = 'WRONG_CLIENT';
-                $errorDescription = 'Wrong client - ApplicationProfile may be incorrect';
-            }
-            
+            // ✅ Теперь передаем apiError и apiErrorDescription в конструктор
             throw new Bitrix24ApiException(
                 "API call failed: {$method} - {$errorDescription}",
                 $e->getCode(),
-                $e
+                $e,
+                $errorCode,        // ✅ apiError
+                $errorDescription  // ✅ apiErrorDescription
             );
         }
     }
@@ -445,16 +536,69 @@ class Bitrix24SdkClient implements ApiClientInterface
         } catch (BaseException $e) {
             $executionTime = round((microtime(true) - $startTime) * 1000, 2);
             
+            // Извлечение ошибок (аналогично методу call())
+            $errorCode = 'UNKNOWN_ERROR';
+            $errorDescription = $e->getMessage();
+            
+            // Пытаемся извлечь ошибку из response
+            try {
+                if (method_exists($e, 'getResponse')) {
+                    $response = $e->getResponse();
+                    if ($response && method_exists($response, 'getHttpResponse')) {
+                        $httpResponse = $response->getHttpResponse();
+                        if ($httpResponse && method_exists($httpResponse, 'toArray')) {
+                            try {
+                                $responseBody = $httpResponse->toArray(true);
+                                if (isset($responseBody['error'])) {
+                                    $errorCode = $responseBody['error'];
+                                }
+                                if (isset($responseBody['error_description'])) {
+                                    $errorDescription = $responseBody['error_description'];
+                                }
+                            } catch (\Exception $toArrayException) {
+                                // Fallback на getContent
+                                try {
+                                    if (method_exists($httpResponse, 'getContent')) {
+                                        $content = $httpResponse->getContent(false);
+                                        if ($content) {
+                                            $responseBody = json_decode($content, true);
+                                            if (json_last_error() === JSON_ERROR_NONE && is_array($responseBody)) {
+                                                if (isset($responseBody['error'])) {
+                                                    $errorCode = $responseBody['error'];
+                                                }
+                                                if (isset($responseBody['error_description'])) {
+                                                    $errorDescription = $responseBody['error_description'];
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (\Exception $contentException) {
+                                    // Игнорируем
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (\Exception $extractException) {
+                // Игнорируем ошибки извлечения
+            }
+            
             $this->logger->logError('Bitrix24 API batch exception (SDK)', [
                 'commands_count' => count($commands),
                 'exception' => $e->getMessage(),
-                'execution_time_ms' => $executionTime
+                'execution_time_ms' => $executionTime,
+                'extracted_error' => [
+                    'code' => $errorCode,
+                    'description' => $errorDescription
+                ]
             ]);
             
             throw new Bitrix24ApiException(
-                "API batch call failed",
+                "API batch call failed: {$errorDescription}",
                 $e->getCode(),
-                $e
+                $e,
+                $errorCode,        // ✅ apiError
+                $errorDescription  // ✅ apiErrorDescription
             );
         }
     }
