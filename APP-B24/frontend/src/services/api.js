@@ -69,6 +69,21 @@ apiClient.interceptors.response.use(
     if (import.meta.env.DEV) {
       console.log('API Response:', response.config.url, response.data);
     }
+    
+    // Проверяем success: false даже при HTTP 200
+    // Это позволяет обрабатывать бизнес-ошибки как ошибки
+    if (response.data && response.data.success === false) {
+      const error = new Error(response.data.message || response.data.error || 'Request failed');
+      error.response = {
+        data: response.data,
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+        config: response.config
+      };
+      return Promise.reject(error);
+    }
+    
     return response;
   },
   (error) => {

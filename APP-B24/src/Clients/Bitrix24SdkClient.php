@@ -133,7 +133,7 @@ class Bitrix24SdkClient implements ApiClientInterface
      * @param string $domain Домен портала
      * @throws Bitrix24ApiException При ошибке инициализации
      */
-    public function initializeWithUserToken(string $authId, string $domain): void
+    public function initializeWithUserToken(string $authId, string $domain, ?string $refreshId = null, ?int $authExpires = null): void
     {
         // Валидация
         if (empty($authId) || empty($domain)) {
@@ -145,11 +145,24 @@ class Bitrix24SdkClient implements ApiClientInterface
         $domain = rtrim($domain, '/');
         
         try {
-            // Создание AuthToken (для пользовательского токена нет refresh_token)
+            // Создание AuthToken
+            // Если refreshId не передан, используем null (one-off token)
+            // Если authExpires не передан, используем время + 1 час
+            $expires = $authExpires ?? (time() + 3600);
+            
+            $this->logger->log('Creating AuthToken for user', [
+                'auth_id_length' => strlen($authId),
+                'has_refresh_id' => !empty($refreshId),
+                'refresh_id_length' => $refreshId ? strlen($refreshId) : 0,
+                'auth_expires' => $authExpires,
+                'calculated_expires' => $expires,
+                'expires_timestamp' => date('Y-m-d H:i:s', $expires)
+            ], 'info');
+            
             $authToken = new AuthToken(
                 $authId,
-                null, // refresh_token
-                time() + 3600 // expires
+                $refreshId, // refresh_token (может быть null для one-off tokens)
+                $expires // expires
             );
             
             // Создание Endpoints
@@ -157,11 +170,32 @@ class Bitrix24SdkClient implements ApiClientInterface
             $authServerUrl = 'https://oauth.bitrix.info/'; // West region по умолчанию
             $endpoints = new Endpoints("https://{$domain}", $authServerUrl);
             
-            // Создание ApplicationProfile (минимальный)
+            // Создание ApplicationProfile
+            // Для токена пользователя используем настройки приложения из settings.json
+            $settings = $this->getSettings();
+            $clientId = $settings['client_id'] ?? $settings['application_token'] ?? 'user';
+            $clientSecret = $settings['client_secret'] ?? $settings['application_token'] ?? 'user';
+            $scope = $settings['scope'] ?? 'crm';
+            
+            // Если нет настроек, используем минимальные значения
+            // Но это может вызвать ошибку "wrong_client"
+            if (empty($clientId) || $clientId === 'user') {
+                $clientId = $settings['application_token'] ?? 'user';
+            }
+            if (empty($clientSecret) || $clientSecret === 'user') {
+                $clientSecret = $settings['application_token'] ?? 'user';
+            }
+            
+            $this->logger->log('Initializing ApplicationProfile for user token', [
+                'client_id' => substr($clientId, 0, 10) . '...',
+                'has_client_secret' => !empty($clientSecret),
+                'scope' => $scope
+            ], 'info');
+            
             $applicationProfile = new ApplicationProfile(
-                'user',
-                'user',
-                Scope::initFromString('crm')
+                $clientId,
+                $clientSecret,
+                Scope::initFromString($scope)
             );
             
             // Создание Credentials
@@ -300,14 +334,45 @@ class Bitrix24SdkClient implements ApiClientInterface
         } catch (BaseException $e) {
             $executionTime = round((microtime(true) - $startTime) * 1000, 2);
             
-            $this->logger->logError('Bitrix24 API exception (SDK)', [
+            // Детальное логирование исключения
+            $exceptionDetails = [
                 'method' => $method,
                 'exception' => $e->getMessage(),
+                'exception_class' => get_class($e),
                 'execution_time_ms' => $executionTime
-            ]);
+            ];
+            
+            // Пытаемся извлечь детальную информацию об ошибке
+            if (method_exists($e, 'getResponse')) {
+                try {
+                    $response = $e->getResponse();
+                    if ($response) {
+                        $exceptionDetails['response_data'] = $response->getResponseData();
+                        $exceptionDetails['error_code'] = method_exists($response, 'getError') ? $response->getError() : null;
+                        $exceptionDetails['error_description'] = method_exists($response, 'getErrorDescription') ? $response->getErrorDescription() : null;
+                    }
+                } catch (\Exception $responseException) {
+                    // Игнорируем ошибки при получении response
+                }
+            }
+            
+            $this->logger->logError('Bitrix24 API exception (SDK)', $exceptionDetails);
+            
+            // Преобразуем исключение SDK в наш формат с детальной информацией
+            $errorCode = 'UNKNOWN_ERROR';
+            $errorDescription = $e->getMessage();
+            
+            // Пытаемся извлечь код ошибки из сообщения
+            if (preg_match('/UNAUTHORIZED/i', $e->getMessage())) {
+                $errorCode = 'UNAUTHORIZED';
+                $errorDescription = 'Unauthorized request - token may be invalid or expired';
+            } elseif (preg_match('/wrong_client/i', $e->getMessage())) {
+                $errorCode = 'WRONG_CLIENT';
+                $errorDescription = 'Wrong client - ApplicationProfile may be incorrect';
+            }
             
             throw new Bitrix24ApiException(
-                "API call failed: {$method}",
+                "API call failed: {$method} - {$errorDescription}",
                 $e->getCode(),
                 $e
             );

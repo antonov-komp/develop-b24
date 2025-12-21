@@ -75,8 +75,20 @@ class Bitrix24ApiService
         ], 'info');
         
         try {
+            // Получаем дополнительные параметры из запроса (если есть)
+            $refreshId = $_REQUEST['REFRESH_ID'] ?? null;
+            $authExpires = isset($_REQUEST['AUTH_EXPIRES']) ? (int)$_REQUEST['AUTH_EXPIRES'] : null;
+            
+            // Логирование параметров для диагностики
+            $this->logger->log('Initializing SDK client with user token', [
+                'auth_id_length' => strlen($authId),
+                'has_refresh_id' => !empty($refreshId),
+                'auth_expires' => $authExpires,
+                'domain' => $domain
+            ], 'info');
+            
             // Инициализируем клиент с токеном пользователя
-            $this->client->initializeWithUserToken($authId, $domain);
+            $this->client->initializeWithUserToken($authId, $domain, $refreshId, $authExpires);
             
             // Вызываем через SDK
             $result = $this->client->call('user.current', []);
@@ -93,17 +105,42 @@ class Bitrix24ApiService
             
             // Проверка на ошибку
             if (isset($result['error'])) {
+                $errorCode = $result['error'] ?? 'UNKNOWN';
+                $errorDescription = $result['error_description'] ?? 'No description';
+                
                 $this->logger->logError('User.current API returned error', [
-                    'error' => $result['error'],
-                    'error_description' => $result['error_description'] ?? null
+                    'error' => $errorCode,
+                    'error_description' => $errorDescription,
+                    'full_result' => $result,
+                    'domain' => $domain,
+                    'auth_id_length' => strlen($authId)
                 ]);
+                
+                // Логируем детальную информацию об ошибке
+                if ($errorCode === 'INVALID_TOKEN' || $errorCode === 'expired_token') {
+                    $this->logger->logError('User.current API: Token is invalid or expired', [
+                        'error_code' => $errorCode,
+                        'domain' => $domain,
+                        'suggestion' => 'Check if AUTH_ID token is valid and not expired'
+                    ]);
+                } elseif ($errorCode === 'NO_AUTH_FOUND') {
+                    $this->logger->logError('User.current API: No authentication found', [
+                        'error_code' => $errorCode,
+                        'domain' => $domain,
+                        'suggestion' => 'Check if token matches the domain and is properly configured'
+                    ]);
+                }
+                
                 return null;
             }
             
             // Проверка наличия результата
             if (!isset($result['result'])) {
                 $this->logger->logError('User.current API returned no result', [
-                    'result_keys' => array_keys($result)
+                    'result_keys' => array_keys($result),
+                    'full_result' => $result,
+                    'domain' => $domain,
+                    'auth_id_length' => strlen($authId)
                 ]);
                 return null;
             }
