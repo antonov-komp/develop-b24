@@ -2,9 +2,18 @@
 /**
  * Главная страница приложения Bitrix24
  * 
- * Загружает Vue.js приложение после проверки авторизации
+ * ВАЖНО: PHP не генерирует UI. Вся визуальная часть на Vue.js.
+ * PHP только:
+ * - Проверяет авторизацию
+ * - Получает данные
+ * - Передаёт данные в Vue.js
+ * - Загружает Vue.js приложение
+ * 
  * Документация: https://context7.com/bitrix24/rest/
  */
+
+use App\Services\UserService;
+use App\Services\LoggerService;
 
 // Определение окружения (development/production)
 $appEnv = getenv('APP_ENV') ?: 'production';
@@ -21,33 +30,91 @@ if ($appEnv === 'development') {
 }
 
 try {
+    // 1. Инициализация окружения
     // Подключение и инициализация сервисов
     require_once(__DIR__ . '/src/bootstrap.php');
     
     // Подключение функции загрузки Vue.js
     require_once(__DIR__ . '/src/helpers/loadVueApp.php');
     
-    // Проверка существования собранных файлов Vue.js
-    $distPath = __DIR__ . '/public/dist/index.html';
-    if (!file_exists($distPath)) {
-        http_response_code(503);
-        die('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Ошибка</title></head><body><h1>Vue.js приложение не собрано</h1><p>Выполните: <code>cd frontend && npm run build</code></p></body></html>');
-    }
+    // Логирование начала работы
+    $logger->log('Index page access check', [
+        'script' => 'index.php',
+        'has_auth_params' => !empty($_REQUEST['AUTH_ID']) || !empty($_REQUEST['DOMAIN']),
+        'timestamp' => date('Y-m-d H:i:s')
+    ], 'info');
     
-    // Получение конфигурации внешнего доступа
+    // 2. Проверка конфигурации внешнего доступа
     $config = $configService->getIndexPageConfig();
     $externalAccessEnabled = isset($config['external_access']) && $config['external_access'] === true;
     
-    // Проверка авторизации Bitrix24
-    $authResult = $authService->checkBitrix24Auth();
+    $logger->log('Index page config check', [
+        'external_access_enabled' => $externalAccessEnabled,
+        'config_enabled' => $config['enabled'] ?? true
+    ], 'info');
     
-    // Если внешний доступ активен, разрешаем доступ без Bitrix24
-    if (!$authResult && !$externalAccessEnabled) {
-        // checkBitrix24Auth() уже выполнил редирект на public/failure.php
-        exit;
+    // 3. Проверка авторизации Bitrix24 (если внешний доступ выключен)
+    $authResult = false;
+    if (!$externalAccessEnabled) {
+        $authResult = $authService->checkBitrix24Auth();
+        if (!$authResult) {
+            // checkBitrix24Auth() уже выполнил редирект на public/failure.php
+            $logger->logError('Index page auth check failed', [
+                'external_access_enabled' => false
+            ]);
+            exit;
+        }
+        $logger->log('Index page auth check passed', [
+            'external_access_enabled' => false
+        ], 'info');
+    } else {
+        $logger->log('Index page external access enabled', [
+            'skipping_auth_check' => true
+        ], 'info');
     }
     
-    // Получение информации о текущей авторизации
+    // 4. Получение данных пользователя
+    $authInfo = buildAuthInfo($authResult, $externalAccessEnabled, $userService, $logger);
+    
+    // 5. Построение данных для Vue.js
+    $vueAppData = [
+        'authInfo' => $authInfo,
+        'externalAccessEnabled' => $externalAccessEnabled
+    ];
+    
+    // Валидация данных перед передачей в Vue.js
+    validateVueAppData($vueAppData, $logger);
+    
+    // Логирование данных перед передачей
+    $logger->log('Index page data prepared for Vue.js', [
+        'is_authenticated' => $authInfo['is_authenticated'] ?? false,
+        'is_admin' => $authInfo['is_admin'] ?? false,
+        'has_user' => !empty($authInfo['user']),
+        'external_access' => $externalAccessEnabled
+    ], 'info');
+    
+    // 6. Загрузка Vue.js приложения с данными
+    // (Vue.js отобразит весь UI)
+    loadVueApp('/', $vueAppData);
+    
+} catch (\Throwable $e) {
+    // Единая точка обработки критических ошибок
+    // ВАЖНО: Это единственное место, где PHP генерирует HTML.
+    // Используется только для критических ошибок, когда Vue.js не может загрузиться.
+    handleFatalError($e, $appEnv);
+}
+
+/**
+ * Построение информации об авторизации
+ * 
+ * @param bool $authResult Результат проверки авторизации
+ * @param bool $externalAccessEnabled Включен ли внешний доступ
+ * @param UserService $userService Сервис работы с пользователями
+ * @param LoggerService $logger Сервис логирования
+ * @return array Информация об авторизации
+ */
+function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserService $userService, LoggerService $logger): array
+{
     $authInfo = [
         'is_authenticated' => false,
         'user' => null,
@@ -56,7 +123,7 @@ try {
         'auth_id' => null
     ];
     
-    // Если авторизация прошла, получаем данные пользователя
+    // Если авторизация прошла или внешний доступ включен
     if ($authResult || $externalAccessEnabled) {
         $authId = $_REQUEST['AUTH_ID'] ?? $_GET['AUTH_ID'] ?? $_GET['APP_SID'] ?? null;
         $domain = $_REQUEST['DOMAIN'] ?? $_GET['DOMAIN'] ?? null;
@@ -81,6 +148,11 @@ try {
                     
                     // Проверка прав администратора
                     $authInfo['is_admin'] = $userService->isAdmin($user, $authId, $domain);
+                    
+                    $logger->log('User data retrieved in index.php', [
+                        'user_id' => $authInfo['user']['id'],
+                        'is_admin' => $authInfo['is_admin']
+                    ], 'info');
                 }
             } catch (\Exception $e) {
                 $logger->logError('Failed to get user info in index.php', [
@@ -93,33 +165,80 @@ try {
             // Внешний доступ активен, но нет авторизации Bitrix24
             $authInfo['is_authenticated'] = false;
             $authInfo['external_access'] = true;
+            
+            $logger->log('External access enabled without Bitrix24 auth', [], 'info');
         }
     }
     
-    // Передача данных в Vue.js через модификацию loadVueApp
-    // Создаём временную функцию для передачи данных
-    $vueAppData = [
-        'authInfo' => $authInfo,
-        'externalAccessEnabled' => $externalAccessEnabled
-    ];
+    return $authInfo;
+}
+
+/**
+ * Валидация данных перед передачей в Vue.js
+ * 
+ * @param array $data Данные для валидации
+ * @param LoggerService $logger Сервис логирования
+ * @return void
+ * @throws \InvalidArgumentException При невалидных данных
+ */
+function validateVueAppData(array $data, LoggerService $logger): void
+{
+    if (!isset($data['authInfo'])) {
+        $logger->logError('Vue app data validation failed: authInfo is required', [
+            'data_keys' => array_keys($data)
+        ]);
+        throw new \InvalidArgumentException('authInfo is required');
+    }
     
-    // Сохраняем данные в глобальную переменную для использования в loadVueApp
-    $GLOBALS['vue_app_data'] = $vueAppData;
+    if (!is_array($data['authInfo'])) {
+        $logger->logError('Vue app data validation failed: authInfo must be an array', [
+            'authInfo_type' => gettype($data['authInfo'])
+        ]);
+        throw new \InvalidArgumentException('authInfo must be an array');
+    }
     
-    // Загрузка Vue.js приложения (главная страница)
-    loadVueApp('/');
+    // Проверка обязательных полей в authInfo
+    $requiredFields = ['is_authenticated', 'is_admin'];
+    foreach ($requiredFields as $field) {
+        if (!isset($data['authInfo'][$field])) {
+            $logger->logError('Vue app data validation failed: missing field in authInfo', [
+                'field' => $field
+            ]);
+            throw new \InvalidArgumentException("authInfo.{$field} is required");
+        }
+    }
     
-} catch (\Throwable $e) {
+    $logger->log('Vue app data validation passed', [
+        'has_authInfo' => true,
+        'has_externalAccessEnabled' => isset($data['externalAccessEnabled'])
+    ], 'info');
+}
+
+/**
+ * Обработка фатальных ошибок
+ * 
+ * ВАЖНО: Это единственное место, где PHP генерирует HTML.
+ * Используется только для критических ошибок, когда Vue.js не может загрузиться.
+ * Все остальные ошибки должны обрабатываться в Vue.js.
+ * 
+ * @param \Throwable $e Исключение
+ * @param string $appEnv Окружение (development/production)
+ * @return void
+ */
+function handleFatalError(\Throwable $e, string $appEnv): void
+{
     error_log('Fatal error in index.php: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     
     http_response_code(500);
     echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Ошибка</title></head><body>';
     echo '<h1>Ошибка приложения</h1>';
-    echo '<p>Произошла ошибка при загрузке страницы.</p>';
-    if (ini_get('display_errors')) {
+    echo '<p>Произошла критическая ошибка при загрузке страницы.</p>';
+    
+    if ($appEnv === 'development' || ini_get('display_errors')) {
         echo '<pre>' . htmlspecialchars($e->getMessage()) . '</pre>';
         echo '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>';
     }
+    
     echo '</body></html>';
     exit;
 }

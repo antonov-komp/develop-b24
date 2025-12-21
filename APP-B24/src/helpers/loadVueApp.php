@@ -4,9 +4,13 @@
  * 
  * Используется в index.php, access-control.php, token-analysis.php
  * для единообразной загрузки Vue.js фронтенда
+ * 
+ * @param string|null $initialRoute Начальный маршрут для роутера Vue.js
+ * @param array|null $appData Данные для передачи в Vue.js приложение
+ * @return void
+ * @throws \Exception Если файлы Vue.js не найдены
  */
-
-function loadVueApp(?string $initialRoute = null): void
+function loadVueApp(?string $initialRoute = null, ?array $appData = null): void
 {
     // Определение окружения
     $appEnv = getenv('APP_ENV') ?: 'production';
@@ -27,6 +31,13 @@ function loadVueApp(?string $initialRoute = null): void
     
     // Проверка существования собранных файлов
     if (!file_exists($indexHtml) || $indexHtml === false) {
+        // Логирование ошибки
+        error_log(sprintf(
+            '[loadVueApp] Vue.js app not found: %s (script: %s)',
+            $indexHtml,
+            basename($_SERVER['PHP_SELF'] ?? 'unknown')
+        ));
+        
         if ($appEnv === 'development') {
             http_response_code(503);
             die('
@@ -73,8 +84,9 @@ function loadVueApp(?string $initialRoute = null): void
     $authExpires = isset($_POST['AUTH_EXPIRES']) ? (int)$_POST['AUTH_EXPIRES'] : (isset($_GET['AUTH_EXPIRES']) ? (int)$_GET['AUTH_EXPIRES'] : null);
     $domain = $_POST['DOMAIN'] ?? $_GET['DOMAIN'] ?? null;
     
-    // Получаем данные из index.php (если были переданы)
-    $vueAppData = $GLOBALS['vue_app_data'] ?? null;
+    // Используем переданные данные (приоритет) или данные из глобальной переменной (для обратной совместимости)
+    // TODO: Удалить поддержку $GLOBALS после обновления всех вызовов
+    $vueAppData = $appData ?? ($GLOBALS['vue_app_data'] ?? null);
     
     $bx24Script = '
     <script src="//api.bitrix24.com/api/v1/"></script>
@@ -99,25 +111,8 @@ function loadVueApp(?string $initialRoute = null): void
         })();
         ' : '') . '
         
-        // Передача данных из index.php в Vue.js
-        ' . ($vueAppData ? '
-        (function() {
-            const appData = ' . json_encode($vueAppData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . ';
-            
-            // Сохраняем данные в sessionStorage для использования в Vue.js
-            sessionStorage.setItem("app_data", JSON.stringify(appData));
-            
-            // Также сохраняем в window для прямого доступа
-            window.__APP_DATA__ = appData;
-            
-            console.log("App data from PHP saved", {
-                is_authenticated: appData.authInfo?.is_authenticated,
-                is_admin: appData.authInfo?.is_admin,
-                user_name: appData.authInfo?.user?.full_name,
-                external_access: appData.externalAccessEnabled
-            });
-        })();
-        ' : '') . '
+        // Передача данных из PHP в Vue.js
+        ' . buildVueAppDataScript($vueAppData) . '
         
         // Инициализация BX24 SDK (fallback, если токен не был передан из PHP)
         if (typeof BX24 !== "undefined" && typeof BX24.init === "function") {
@@ -234,8 +229,62 @@ function loadVueApp(?string $initialRoute = null): void
         $html = str_replace('</body>', $navigationScript . '</body>', $html);
     }
     
+    // Логирование успешной загрузки
+    error_log(sprintf(
+        '[loadVueApp] Vue.js app loaded successfully (route: %s, has_data: %s)',
+        $initialRoute ?? '/',
+        $vueAppData ? 'yes' : 'no'
+    ));
+    
     // Вывод HTML
     echo $html;
     exit;
+}
+
+/**
+ * Построение JavaScript-скрипта для передачи данных в Vue.js
+ * 
+ * @param array|null $appData Данные для передачи
+ * @return string JavaScript-код (пустая строка, если данных нет)
+ */
+function buildVueAppDataScript(?array $appData): string
+{
+    if ($appData === null || empty($appData)) {
+        return '';
+    }
+    
+    // Валидация данных перед кодированием
+    if (!is_array($appData)) {
+        error_log('[buildVueAppDataScript] Invalid appData: expected array, got ' . gettype($appData));
+        return '';
+    }
+    
+    $jsonData = json_encode($appData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    
+    if ($jsonData === false) {
+        error_log('[buildVueAppDataScript] Failed to encode appData: ' . json_last_error_msg());
+        return '';
+    }
+    
+    return '
+    <script>
+        (function() {
+            const appData = ' . $jsonData . ';
+            
+            // Сохраняем данные в sessionStorage для использования в Vue.js
+            sessionStorage.setItem("app_data", JSON.stringify(appData));
+            
+            // Также сохраняем в window для прямого доступа
+            window.__APP_DATA__ = appData;
+            
+            console.log("App data from PHP saved", {
+                is_authenticated: appData.authInfo?.is_authenticated,
+                is_admin: appData.authInfo?.is_admin,
+                user_name: appData.authInfo?.user?.full_name,
+                external_access: appData.externalAccessEnabled
+            });
+        })();
+    </script>
+    ';
 }
 

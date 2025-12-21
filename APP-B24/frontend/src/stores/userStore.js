@@ -237,7 +237,20 @@ export const useUserStore = defineStore('user', {
         
         // Сохраняем данные пользователя
         this.currentUser = response.data.data.user;
-        this.isAdmin = response.data.data.isAdmin || false;
+        // Сохраняем isAdmin из API, если он передан, иначе сохраняем текущее значение
+        // Это важно, так как значение может быть установлено из PHP при инициализации
+        if (response.data.data.hasOwnProperty('isAdmin')) {
+          this.isAdmin = response.data.data.isAdmin;
+        }
+        // Если isAdmin не передан в ответе, но есть в currentUser.ADMIN, используем его
+        if (!response.data.data.hasOwnProperty('isAdmin') && this.currentUser) {
+          const userAdmin = this.currentUser.ADMIN === 'Y' || this.currentUser.ADMIN === 'y' || 
+                          this.currentUser.ADMIN === 1 || this.currentUser.ADMIN === true ||
+                          this.currentUser.IS_ADMIN === 'Y' || this.currentUser.IS_ADMIN === true;
+          if (userAdmin) {
+            this.isAdmin = true;
+          }
+        }
         this.departments = response.data.data.departments || [];
         this.error = null; // Очищаем ошибку при успехе
         
@@ -245,6 +258,8 @@ export const useUserStore = defineStore('user', {
           userId: this.currentUser?.ID,
           name: this.currentUser?.NAME,
           isAdmin: this.isAdmin,
+          isAdminFromAPI: response.data.data.isAdmin,
+          userAdminField: this.currentUser?.ADMIN,
           departmentsCount: this.departments.length
         });
         
