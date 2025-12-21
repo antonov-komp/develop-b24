@@ -17,25 +17,50 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     // Извлекаем маршрут из URL
-    // URL формат: /user/current
-    // Преобразуем в: /user.php?action=current
     const url = config.url || '';
     const urlParts = url.split('/').filter(part => part);
     
-    // Если URL содержит сегменты, используем первый как имя файла
+    // Список маршрутов, которые обрабатываются через index.php (многоуровневые пути)
+    // Для этих маршрутов не изменяем URL - index.php сам извлечет путь из REQUEST_URI
+    const indexRoutes = ['access-control', 'user', 'departments', 'users', 'token-analysis'];
+    
     if (urlParts.length > 0) {
       const route = urlParts[0];
-      const action = urlParts[1] || null;
       
-      // Устанавливаем URL на имя файла PHP
-      config.url = `/${route}.php`;
-      
-      // Добавляем action в query параметры, если есть
-      if (action) {
-        config.params = {
-          ...config.params,
-          action: action
-        };
+      // Если маршрут обрабатывается через index.php, всегда используем index.php
+      if (indexRoutes.includes(route)) {
+        // Всегда используем index.php с route параметром для единообразия
+        // Например: /access-control -> /index.php?route=access-control
+        // Например: /access-control/departments/bulk -> /index.php?route=access-control/departments/bulk
+        const fullPath = urlParts.join('/');
+        config.url = '/index.php';
+        
+        // Убеждаемся, что params объект существует
+        if (!config.params) {
+          config.params = {};
+        }
+        
+        // Добавляем route параметр
+        config.params.route = fullPath;
+        
+        console.log('API: Transformed URL for index.php routing', {
+          originalUrl: url,
+          newUrl: config.url,
+          route: fullPath,
+          params: config.params
+        });
+      } else {
+        // Для старых маршрутов (user.php, departments.php и т.д.)
+        // Преобразуем в формат: /user.php?action=current
+        config.url = `/${route}.php`;
+        
+        const action = urlParts[1] || null;
+        if (action) {
+          config.params = {
+            ...config.params,
+            action: action
+          };
+        }
       }
     }
     
@@ -105,16 +130,18 @@ apiClient.interceptors.request.use(
     }
     
     // Добавляем параметры в запрос, если они есть
+    // Важно: используем spread оператор, чтобы сохранить существующие params (например, route)
     if (authId && domain) {
       config.params = {
-        ...config.params,
+        ...(config.params || {}),
         AUTH_ID: authId,
         DOMAIN: domain,
       };
       console.log('API: Auth params added to request', {
         has_auth_id: !!authId,
         auth_id_length: authId ? authId.length : 0,
-        domain: domain
+        domain: domain,
+        all_params: config.params
       });
     } else {
       console.warn('API: Missing AUTH_ID or DOMAIN', {
@@ -124,7 +151,15 @@ apiClient.interceptors.request.use(
       });
     }
     
-    console.log('API Request:', config.method?.toUpperCase(), config.baseURL + config.url, config.params);
+    const fullUrl = config.baseURL + config.url + (config.params ? '?' + new URLSearchParams(config.params).toString() : '');
+    console.log('API Request:', config.method?.toUpperCase(), fullUrl);
+    console.log('API Request details:', {
+      method: config.method?.toUpperCase(),
+      baseURL: config.baseURL,
+      url: config.url,
+      params: config.params,
+      fullUrl: fullUrl
+    });
     
     return config;
   },

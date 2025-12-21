@@ -26,6 +26,17 @@ $authId = $auth['authId'];
 $domain = $auth['domain'];
 $method = $_SERVER['REQUEST_METHOD'];
 $segments = $GLOBALS['segments'] ?? [];
+
+// Логирование для отладки (если нужно)
+if (getenv('APP_ENV') === 'development') {
+    $logger->log('Access Control Route', [
+        'method' => $method,
+        'segments' => $segments,
+        'segments_count' => count($segments),
+        'request_uri' => $_SERVER['REQUEST_URI'] ?? 'unknown'
+    ], 'debug');
+}
+
 $subRoute = $segments[1] ?? null;
 $resourceId = $segments[2] ?? null;
 
@@ -66,13 +77,29 @@ switch ($method) {
     case 'GET':
         // Получение конфигурации прав доступа
         try {
+            $logger->log('Access Control: Getting config', [
+                'method' => $method,
+                'segments' => $segments,
+                'subRoute' => $subRoute
+            ], 'info');
+            
             $accessConfig = $configService->getAccessConfig();
+            
+            $logger->log('Access Control: Config retrieved', [
+                'has_config' => !empty($accessConfig),
+                'config_keys' => array_keys($accessConfig ?? [])
+            ], 'info');
             
             echo json_encode([
                 'success' => true,
                 'data' => $accessConfig
             ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         } catch (\Exception $e) {
+            $logger->logError('Access Control: Failed to get config', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             http_response_code(500);
             echo json_encode([
                 'success' => false,
@@ -134,7 +161,65 @@ switch ($method) {
                     'error' => $result['error'] ?? 'Failed to toggle access control'
                 ], JSON_UNESCAPED_UNICODE);
             }
+        } elseif ($subRoute === 'departments' && ($segments[2] ?? null) === 'bulk') {
+            // Массовое добавление отделов
+            $departments = $input['departments'] ?? null;
+            
+            if (!$departments || !is_array($departments) || empty($departments)) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Bad request',
+                    'message' => 'departments array is required and must not be empty'
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
+            // Валидация структуры отделов
+            $errors = [];
+            foreach ($departments as $index => $dept) {
+                if (!isset($dept['id']) || !isset($dept['name'])) {
+                    $errors[] = "Department at index {$index} must have 'id' and 'name' fields";
+                } elseif (!is_numeric($dept['id']) || (int)$dept['id'] <= 0) {
+                    $errors[] = "Department at index {$index} has invalid 'id'";
+                } elseif (!is_string($dept['name']) || strlen(trim($dept['name'])) === 0) {
+                    $errors[] = "Department at index {$index} has invalid 'name'";
+                }
+            }
+            
+            if (!empty($errors)) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Validation failed',
+                    'errors' => $errors
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
+            $result = $accessControlService->addDepartments(
+                $departments,
+                [
+                    'id' => $currentUser['ID'],
+                    'name' => trim(($currentUser['NAME'] ?? '') . ' ' . ($currentUser['LAST_NAME'] ?? ''))
+                ]
+            );
+            
+            if ($result['success']) {
+                echo json_encode([
+                    'success' => true,
+                    'data' => $result
+                ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            } else {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => $result['error'] ?? 'Failed to add departments',
+                    'data' => $result
+                ], JSON_UNESCAPED_UNICODE);
+            }
         } elseif ($subRoute === 'departments') {
+            // Обычное добавление одного отдела (для обратной совместимости)
             $deptId = $input['department_id'] ?? null;
             $deptName = $input['department_name'] ?? null;
             
@@ -176,7 +261,7 @@ switch ($method) {
                 $deptName,
                 [
                     'id' => $currentUser['ID'],
-                    'name' => ($currentUser['NAME'] ?? '') . ' ' . ($currentUser['LAST_NAME'] ?? '')
+                    'name' => trim(($currentUser['NAME'] ?? '') . ' ' . ($currentUser['LAST_NAME'] ?? ''))
                 ]
             );
             
@@ -192,7 +277,68 @@ switch ($method) {
                     'error' => $result['error'] ?? 'Failed to add department'
                 ], JSON_UNESCAPED_UNICODE);
             }
+        } elseif ($subRoute === 'users' && ($segments[2] ?? null) === 'bulk') {
+            // Массовое добавление пользователей
+            $users = $input['users'] ?? null;
+            
+            if (!$users || !is_array($users) || empty($users)) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Bad request',
+                    'message' => 'users array is required and must not be empty'
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
+            // Валидация структуры пользователей
+            $errors = [];
+            foreach ($users as $index => $user) {
+                if (!isset($user['id']) || !isset($user['name'])) {
+                    $errors[] = "User at index {$index} must have 'id' and 'name' fields";
+                } elseif (!is_numeric($user['id']) || (int)$user['id'] <= 0) {
+                    $errors[] = "User at index {$index} has invalid 'id'";
+                } elseif (!is_string($user['name']) || strlen(trim($user['name'])) === 0) {
+                    $errors[] = "User at index {$index} has invalid 'name'";
+                }
+                if (isset($user['email']) && !empty($user['email']) && !filter_var($user['email'], FILTER_VALIDATE_EMAIL)) {
+                    $errors[] = "User at index {$index} has invalid 'email'";
+                }
+            }
+            
+            if (!empty($errors)) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Validation failed',
+                    'errors' => $errors
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
+            $result = $accessControlService->addUsers(
+                $users,
+                [
+                    'id' => $currentUser['ID'],
+                    'name' => trim(($currentUser['NAME'] ?? '') . ' ' . ($currentUser['LAST_NAME'] ?? ''))
+                ]
+            );
+            
+            if ($result['success']) {
+                echo json_encode([
+                    'success' => true,
+                    'data' => $result
+                ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            } else {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => $result['error'] ?? 'Failed to add users',
+                    'data' => $result
+                ], JSON_UNESCAPED_UNICODE);
+            }
         } elseif ($subRoute === 'users') {
+            // Обычное добавление одного пользователя (для обратной совместимости)
             $userId = $input['user_id'] ?? null;
             $userName = $input['user_name'] ?? null;
             $userEmail = $input['user_email'] ?? null;

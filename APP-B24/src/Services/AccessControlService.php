@@ -403,6 +403,177 @@ class AccessControlService
             return ['success' => false, 'error' => $saveResult['error'] ?? 'Ошибка при сохранении конфигурации'];
         }
     }
+    
+    /**
+     * Массовое добавление отделов в список доступа
+     * 
+     * @param array $departments Массив отделов [['id' => int, 'name' => string], ...]
+     * @param array $addedBy Информация о том, кто добавил ['id' => int, 'name' => string]
+     * @return array Результат операции ['success' => bool, 'error' => string|null, 'added' => int, 'skipped' => int]
+     */
+    public function addDepartments(array $departments, array $addedBy): array
+    {
+        // Валидация входных данных
+        if (empty($departments) || !is_array($departments)) {
+            return ['success' => false, 'error' => 'Не указаны отделы для добавления', 'added' => 0, 'skipped' => 0];
+        }
+        
+        $config = $this->configService->getAccessConfig();
+        
+        if (!isset($config['access_control']['departments']) || !is_array($config['access_control']['departments'])) {
+            $config['access_control']['departments'] = [];
+        }
+        
+        // Создаём индекс существующих отделов для быстрой проверки
+        $existingIds = [];
+        foreach ($config['access_control']['departments'] as $dept) {
+            if (isset($dept['id'])) {
+                $existingIds[(int)$dept['id']] = true;
+            }
+        }
+        
+        $added = 0;
+        $skipped = 0;
+        
+        foreach ($departments as $dept) {
+            // Валидация структуры отдела
+            if (!isset($dept['id']) || !isset($dept['name'])) {
+                $skipped++;
+                continue;
+            }
+            
+            $deptId = (int)$dept['id'];
+            $deptName = trim($dept['name']);
+            
+            // Валидация значений
+            if ($deptId <= 0 || empty($deptName)) {
+                $skipped++;
+                continue;
+            }
+            
+            // Проверка на дубликаты
+            if (isset($existingIds[$deptId])) {
+                $skipped++;
+                continue;
+            }
+            
+            // Добавление отдела
+            $config['access_control']['departments'][] = [
+                'id' => $deptId,
+                'name' => $deptName,
+                'added_at' => date('Y-m-d H:i:s'),
+                'added_by' => $addedBy
+            ];
+            
+            $existingIds[$deptId] = true;
+            $added++;
+        }
+        
+        if ($added === 0) {
+            return ['success' => false, 'error' => 'Не удалось добавить отделы (все уже существуют или невалидны)', 'added' => 0, 'skipped' => $skipped];
+        }
+        
+        $config['access_control']['last_updated'] = date('Y-m-d H:i:s');
+        $config['access_control']['updated_by'] = $addedBy;
+        
+        $saveResult = $this->configService->saveAccessConfig($config);
+        if ($saveResult['success']) {
+            $this->logger->logAccessControl('add_departments_bulk', [
+                'added' => $added,
+                'skipped' => $skipped,
+                'added_by' => $addedBy
+            ]);
+            return ['success' => true, 'error' => null, 'added' => $added, 'skipped' => $skipped];
+        } else {
+            return ['success' => false, 'error' => $saveResult['error'] ?? 'Ошибка при сохранении конфигурации', 'added' => 0, 'skipped' => $skipped];
+        }
+    }
+    
+    /**
+     * Массовое добавление пользователей в список доступа
+     * 
+     * @param array $users Массив пользователей [['id' => int, 'name' => string, 'email' => string|null], ...]
+     * @param array $addedBy Информация о том, кто добавил ['id' => int, 'name' => string]
+     * @return array Результат операции ['success' => bool, 'error' => string|null, 'added' => int, 'skipped' => int]
+     */
+    public function addUsers(array $users, array $addedBy): array
+    {
+        // Валидация входных данных
+        if (empty($users) || !is_array($users)) {
+            return ['success' => false, 'error' => 'Не указаны пользователи для добавления', 'added' => 0, 'skipped' => 0];
+        }
+        
+        $config = $this->configService->getAccessConfig();
+        
+        if (!isset($config['access_control']['users']) || !is_array($config['access_control']['users'])) {
+            $config['access_control']['users'] = [];
+        }
+        
+        // Создаём индекс существующих пользователей для быстрой проверки
+        $existingIds = [];
+        foreach ($config['access_control']['users'] as $user) {
+            if (isset($user['id'])) {
+                $existingIds[(int)$user['id']] = true;
+            }
+        }
+        
+        $added = 0;
+        $skipped = 0;
+        
+        foreach ($users as $user) {
+            // Валидация структуры пользователя
+            if (!isset($user['id']) || !isset($user['name'])) {
+                $skipped++;
+                continue;
+            }
+            
+            $userId = (int)$user['id'];
+            $userName = trim($user['name']);
+            
+            // Валидация значений
+            if ($userId <= 0 || empty($userName)) {
+                $skipped++;
+                continue;
+            }
+            
+            // Проверка на дубликаты
+            if (isset($existingIds[$userId])) {
+                $skipped++;
+                continue;
+            }
+            
+            // Добавление пользователя
+            $config['access_control']['users'][] = [
+                'id' => $userId,
+                'name' => $userName,
+                'email' => isset($user['email']) ? trim($user['email']) : null,
+                'added_at' => date('Y-m-d H:i:s'),
+                'added_by' => $addedBy
+            ];
+            
+            $existingIds[$userId] = true;
+            $added++;
+        }
+        
+        if ($added === 0) {
+            return ['success' => false, 'error' => 'Не удалось добавить пользователей (все уже существуют или невалидны)', 'added' => 0, 'skipped' => $skipped];
+        }
+        
+        $config['access_control']['last_updated'] = date('Y-m-d H:i:s');
+        $config['access_control']['updated_by'] = $addedBy;
+        
+        $saveResult = $this->configService->saveAccessConfig($config);
+        if ($saveResult['success']) {
+            $this->logger->logAccessControl('add_users_bulk', [
+                'added' => $added,
+                'skipped' => $skipped,
+                'added_by' => $addedBy
+            ]);
+            return ['success' => true, 'error' => null, 'added' => $added, 'skipped' => $skipped];
+        } else {
+            return ['success' => false, 'error' => $saveResult['error'] ?? 'Ошибка при сохранении конфигурации', 'added' => 0, 'skipped' => $skipped];
+        }
+    }
 }
 
 

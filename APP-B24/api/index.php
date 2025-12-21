@@ -29,6 +29,7 @@ $path = parse_url($requestUri, PHP_URL_PATH) ?: '';
 // Пробуем получить маршрут из query параметров (для nginx)
 $route = $_GET['route'] ?? null;
 $subRoute = $_GET['action'] ?? null;
+$segments = [];
 
 // Если маршрут не в query, пытаемся извлечь из path
 if (!$route) {
@@ -38,33 +39,53 @@ if (!$route) {
     $path = preg_replace('#^/APP-B24/api#', '', $path);
     // Удаляем префикс /api если есть
     $path = preg_replace('#^/api#', '', $path);
-    // Удаляем index.php если остался
-    $path = preg_replace('#/index\.php#', '', $path);
+    // Удаляем index.php если остался (в начале или в конце)
+    $path = preg_replace('#^/index\.php#', '', $path);
+    $path = preg_replace('#/index\.php$#', '', $path);
+    $path = preg_replace('#/index\.php/#', '/', $path);
     
     $segments = array_filter(explode('/', trim($path, '/')));
     $segments = array_values($segments);
     
     $route = $segments[0] ?? 'index';
     $subRoute = $segments[1] ?? null;
+} else {
+    // Если route из query, разбиваем его на сегменты
+    // route может быть "access-control/departments/bulk" или просто "access-control"
+    $segments = array_filter(explode('/', $route));
+    $segments = array_values($segments);
+    
+    // Устанавливаем route и subRoute из segments (игнорируем $_GET['action'])
+    $route = $segments[0] ?? 'index';
+    $subRoute = $segments[1] ?? null;
 }
+
+// Сохраняем segments в глобальную область для использования в routes
+$GLOBALS['segments'] = $segments;
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 // Логирование запроса (для отладки)
-if ($appEnv === 'development') {
-    $logger->log('API Request', [
-        'method' => $method,
-        'route' => $route,
-        'sub_route' => $subRoute,
-        'path' => $path,
-        'segments' => $segments
-    ], 'info');
-}
+// Всегда логируем для диагностики проблем
+$logger->log('API Request', [
+    'method' => $method,
+    'route' => $route,
+    'sub_route' => $subRoute,
+    'path' => $path,
+    'segments' => $segments,
+    'request_uri' => $requestUri,
+    'route_from_query' => $_GET['route'] ?? null,
+    'app_env' => $appEnv
+], 'info');
 
 try {
     switch ($route) {
         case 'user':
             require_once(__DIR__ . '/routes/user.php');
+            break;
+        case 'users':
+            // Обработка запросов к /api/users
+            require_once(__DIR__ . '/users.php');
             break;
         case 'departments':
             require_once(__DIR__ . '/routes/departments.php');
