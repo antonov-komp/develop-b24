@@ -354,3 +354,4 @@ function linkContactToDeal(int $contactId, int $dealId): bool
 
 
 
+

@@ -234,3 +234,4 @@ public function getCurrentUserDirect(string $authId, string $domain): ?array
 **Проверено:** Проблема идентифицирована, нужны дополнительные действия
 
 
+
