@@ -165,9 +165,20 @@ const goToAccessControl = () => {
 
 onMounted(async () => {
   console.log('IndexPage mounted, fetching user data...');
+  console.log('Initial store state:', {
+    isAdmin: userStore.isAdmin,
+    isAdminUser: userStore.isAdminUser,
+    currentUser: userStore.currentUser
+  });
   try {
     await userStore.fetchCurrentUser();
     console.log('User data loaded:', userStore.currentUser);
+    console.log('Admin status after fetch:', {
+      isAdmin: userStore.isAdmin,
+      isAdminUser: userStore.isAdminUser,
+      userAdminField: userStore.currentUser?.ADMIN,
+      userIsAdminField: userStore.currentUser?.IS_ADMIN
+    });
     if (userStore.currentUser) {
       showSuccess('Данные пользователя загружены');
     }
