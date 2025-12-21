@@ -92,7 +92,7 @@ const router = createRouter({
 
 // Навигационные хуки
 router.beforeEach((to, from, next) => {
-  console.log('Router beforeEach:', { to: to.path, from: from.path, fullPath: to.fullPath });
+  console.log('Router beforeEach:', { to: to.path, from: from.path, fullPath: to.fullPath, query: to.query });
   
   // Если маршрут содержит index.php, редиректим на главную
   if (to.path === '/index.php' || to.path.includes('index.php')) {
@@ -101,17 +101,40 @@ router.beforeEach((to, from, next) => {
     return;
   }
   
+  // Сохраняем параметры авторизации при навигации
+  // Если параметры есть в текущем URL, но их нет в целевом маршруте, добавляем их
+  const currentParams = new URLSearchParams(window.location.search);
+  const authId = currentParams.get('AUTH_ID') || currentParams.get('APP_SID');
+  const domain = currentParams.get('DOMAIN');
+  
+  // Если параметры есть в текущем URL, но их нет в query целевого маршрута, добавляем
+  if (authId && domain && (!to.query.AUTH_ID && !to.query.APP_SID) && !to.query.DOMAIN) {
+    console.log('Router: Adding auth params to route query');
+    next({
+      path: to.path,
+      query: {
+        ...to.query,
+        AUTH_ID: authId,
+        DOMAIN: domain,
+        // Сохраняем другие параметры из текущего URL
+        ...Object.fromEntries(currentParams.entries())
+      },
+      replace: false
+    });
+    return;
+  }
+  
   // Проверка авторизации
   if (to.meta.requiresAuth) {
-    const urlParams = new URLSearchParams(window.location.search);
-    // Bitrix24 может передавать APP_SID вместо AUTH_ID
-    const authId = urlParams.get('AUTH_ID') || urlParams.get('APP_SID');
-    const domain = urlParams.get('DOMAIN');
+    // Проверяем параметры в query маршрута или в текущем URL
+    const routeAuthId = to.query.AUTH_ID || to.query.APP_SID || authId;
+    const routeDomain = to.query.DOMAIN || domain;
     
-    if (!authId || !domain) {
+    if (!routeAuthId || !routeDomain) {
       console.warn('Router: Missing AUTH_ID or DOMAIN, redirecting to index');
-      // Редирект на главную страницу
-      next({ name: 'index' });
+      // Редирект на главную страницу с сохранением параметров, если они есть
+      const redirectQuery = authId && domain ? { AUTH_ID: authId, DOMAIN: domain } : {};
+      next({ name: 'index', query: redirectQuery });
       return;
     }
   }

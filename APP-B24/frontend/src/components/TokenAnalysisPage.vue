@@ -2,7 +2,10 @@
   <div class="token-analysis-page">
     <div class="container">
       <div class="card">
-        <h1>Анализ токена</h1>
+        <div class="page-header">
+          <button @click="goBack" class="back-button">← Назад</button>
+          <h1>Анализ токена</h1>
+        </div>
         
         <div v-if="loading" class="loading">
           Загрузка данных...
@@ -89,11 +92,32 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { bitrix24Api } from '@/services/bitrix24Api';
 
+const router = useRouter();
 const loading = ref(true);
 const error = ref(null);
 const analysis = ref(null);
+
+const goBack = () => {
+  const params = new URLSearchParams(window.location.search);
+  const authId = params.get('AUTH_ID') || params.get('APP_SID');
+  const domain = params.get('DOMAIN');
+  
+  if (authId && domain) {
+    router.push({
+      path: '/',
+      query: {
+        AUTH_ID: authId,
+        DOMAIN: domain,
+        ...Object.fromEntries(params.entries())
+      }
+    });
+  } else {
+    router.push('/');
+  }
+};
 
 const userFullName = computed(() => {
   if (!analysis.value?.user) return '';
@@ -139,6 +163,38 @@ function copyToClipboard() {
 .token-analysis-page {
   min-height: 100vh;
   padding: 20px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  margin: 0;
+  flex: 1;
+}
+
+.back-button {
+  padding: 8px 16px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.back-button:hover {
+  background: #545b62;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .section {

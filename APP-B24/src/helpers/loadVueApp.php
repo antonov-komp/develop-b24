@@ -113,56 +113,10 @@ function loadVueApp(?string $initialRoute = null, ?array $appData = null): void
         
         // Передача данных из PHP в Vue.js
         ' . buildVueAppDataScript($vueAppData) . '
-        
-        // Инициализация BX24 SDK (fallback, если токен не был передан из PHP)
-        if (typeof BX24 !== "undefined" && typeof BX24.init === "function") {
-            BX24.init(function() {
-                console.log("BX24 SDK initialized");
-                
-                // Получаем токен авторизации только если его еще нет в sessionStorage
-                if (!sessionStorage.getItem("bitrix24_auth")) {
-                    BX24.getAuth(function(auth) {
-                        if (auth && auth.auth_token) {
-                            sessionStorage.setItem("bitrix24_auth", JSON.stringify(auth));
-                            console.log("BX24 auth token saved to sessionStorage", {
-                                auth_token_length: auth.auth_token.length,
-                                domain: auth.domain
-                            });
-                        }
-                    });
-                }
-            });
-        }
     </script>
     ';
     
-    // Добавляем отладочный скрипт для проверки загрузки (временно в production тоже)
-    $debugScript = '
-    <script>
-        console.log("=== Vue.js App Debug ===");
-        console.log("Location:", window.location.href);
-        console.log("Base tag:", document.querySelector("base")?.href || "none");
-        console.log("Scripts:", Array.from(document.querySelectorAll("script")).map(s => s.src));
-        console.log("Styles:", Array.from(document.querySelectorAll("link[rel=stylesheet]")).map(l => l.href));
-        console.log("App element:", document.querySelector("#app"));
-        
-        // Проверка загрузки скриптов
-        window.addEventListener("error", function(e) {
-            console.error("Script load error:", e.filename, e.message);
-        });
-        
-        // Проверка, что Vue.js загрузился
-        setTimeout(function() {
-            const app = document.querySelector("#app");
-            if (app && !app.__vue_app__) {
-                console.error("Vue.js app not mounted after 2 seconds!");
-            } else if (app && app.__vue_app__) {
-                console.log("Vue.js app mounted successfully");
-            }
-        }, 2000);
-    </script>
-    ';
-    $html = str_replace('</head>', $bx24Script . $debugScript . '</head>', $html);
+    $html = str_replace('</head>', $bx24Script . '</head>', $html);
     
     // Если указан начальный маршрут, добавляем скрипт для навигации
     if ($initialRoute && $initialRoute !== '/') {

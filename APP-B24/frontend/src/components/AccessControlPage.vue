@@ -2,7 +2,10 @@
   <div class="access-control-page">
     <div class="container">
       <div class="card">
-        <h1>Управление правами доступа</h1>
+        <div class="page-header">
+          <button @click="goBack" class="back-button">← Назад</button>
+          <h1>Управление правами доступа</h1>
+        </div>
         
         <div v-if="store.loading" class="loading">
           Загрузка данных...
@@ -127,11 +130,32 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAccessControlStore } from '@/stores/accessControlStore';
 import { showSuccess, showError } from '@/utils/bitrix24';
 
+const router = useRouter();
 const store = useAccessControlStore();
 const saving = ref(false);
+
+const goBack = () => {
+  const params = new URLSearchParams(window.location.search);
+  const authId = params.get('AUTH_ID') || params.get('APP_SID');
+  const domain = params.get('DOMAIN');
+  
+  if (authId && domain) {
+    router.push({
+      path: '/',
+      query: {
+        AUTH_ID: authId,
+        DOMAIN: domain,
+        ...Object.fromEntries(params.entries())
+      }
+    });
+  } else {
+    router.push('/');
+  }
+};
 
 const enabled = computed({
   get: () => store.isEnabled,
@@ -180,8 +204,6 @@ async function addDepartment() {
 }
 
 async function removeDepartment(id) {
-  if (!confirm('Удалить отдел из списка доступа?')) return;
-  
   saving.value = true;
   try {
     await store.removeDepartment(id);
@@ -217,8 +239,6 @@ async function addUser() {
 }
 
 async function removeUser(id) {
-  if (!confirm('Удалить пользователя из списка доступа?')) return;
-  
   saving.value = true;
   try {
     await store.removeUser(id);
@@ -236,6 +256,38 @@ async function removeUser(id) {
 .access-control-page {
   min-height: 100vh;
   padding: 20px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  margin: 0;
+  flex: 1;
+}
+
+.back-button {
+  padding: 8px 16px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.back-button:hover {
+  background: #545b62;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .toggle-section {

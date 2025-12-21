@@ -4,15 +4,6 @@
       <div class="card">
         <h1>Добро пожаловать!</h1>
         
-        <!-- Отладочная информация -->
-        <div style="background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 12px;">
-          <strong>Debug:</strong><br>
-          Loading: {{ userStore.loading }}<br>
-          Error: {{ userStore.error || 'none' }}<br>
-          User: {{ user ? 'loaded' : 'not loaded' }}<br>
-          User ID: {{ user?.ID || 'N/A' }}
-        </div>
-        
         <div v-if="userStore.loading" class="loading">
           Загрузка данных...
         </div>
@@ -64,7 +55,6 @@
             </p>
           </div>
           
-          <!-- Информация о текущей авторизации -->
           <div class="auth-info-section">
             <h3>Информация о текущей авторизации</h3>
             <div class="auth-info">
@@ -82,7 +72,6 @@
             </div>
           </div>
           
-          <!-- Кнопки для администраторов -->
           <div v-if="isAdmin" class="admin-actions">
             <h3>Функционал администратора</h3>
             <div class="admin-buttons">
@@ -126,20 +115,16 @@ const userFullName = computed(() => {
   return `${name} ${lastName}`.trim() || 'Пользователь';
 });
 
-// Проверка, используется ли токен текущего пользователя
 const isCurrentUserToken = computed(() => {
   const params = new URLSearchParams(window.location.search);
-  // Bitrix24 может передавать APP_SID вместо AUTH_ID
   return (params.has('AUTH_ID') || params.has('APP_SID')) && params.has('DOMAIN');
 });
 
-// Получение домена из URL или данных пользователя
 const domain = computed(() => {
   const params = new URLSearchParams(window.location.search);
   return params.get('DOMAIN') || 'не указан';
 });
 
-// Информация о статусе авторизации
 const authStatusClass = computed(() => {
   if (userStore.externalAccessEnabled && !userStore.isAuthenticated) {
     return 'status-external';
@@ -154,13 +139,42 @@ const authStatusText = computed(() => {
   return userStore.isAuthenticated ? 'Авторизован' : 'Не авторизован';
 });
 
-// Навигация для администраторов
 const goToTokenAnalysis = () => {
-  router.push('/token-analysis');
+  const params = new URLSearchParams(window.location.search);
+  const authId = params.get('AUTH_ID') || params.get('APP_SID');
+  const domain = params.get('DOMAIN');
+  
+  if (authId && domain) {
+    router.push({
+      path: '/token-analysis',
+      query: {
+        AUTH_ID: authId,
+        DOMAIN: domain,
+        ...Object.fromEntries(params.entries())
+      }
+    });
+  } else {
+    router.push('/token-analysis');
+  }
 };
 
 const goToAccessControl = () => {
-  router.push('/access-control');
+  const params = new URLSearchParams(window.location.search);
+  const authId = params.get('AUTH_ID') || params.get('APP_SID');
+  const domain = params.get('DOMAIN');
+  
+  if (authId && domain) {
+    router.push({
+      path: '/access-control',
+      query: {
+        AUTH_ID: authId,
+        DOMAIN: domain,
+        ...Object.fromEntries(params.entries())
+      }
+    });
+  } else {
+    router.push('/access-control');
+  }
 };
 
 onMounted(async () => {
@@ -179,9 +193,6 @@ onMounted(async () => {
       userAdminField: userStore.currentUser?.ADMIN,
       userIsAdminField: userStore.currentUser?.IS_ADMIN
     });
-    if (userStore.currentUser) {
-      showSuccess('Данные пользователя загружены');
-    }
   } catch (err) {
     console.error('Ошибка загрузки пользователя:', err);
     console.error('Error details:', {

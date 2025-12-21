@@ -40,41 +40,88 @@ apiClient.interceptors.request.use(
     }
     
     // Добавление параметров из Bitrix24, если доступны
-    const params = new URLSearchParams(window.location.search);
-    const domain = params.get('DOMAIN');
+    // Сначала проверяем sessionStorage (приоритет - токен из BX24.getAuth())
+    let authId = null;
+    let domain = null;
     
-    // Пытаемся получить правильный AUTH_ID
-    // APP_SID не работает для API вызовов, нужен auth_token из BX24.getAuth()
-    let authId = params.get('AUTH_ID');
+    // Пытаемся получить токен из sessionStorage (самый надежный способ)
+    const storedAuth = sessionStorage.getItem('bitrix24_auth');
+    if (storedAuth) {
+      try {
+        const auth = JSON.parse(storedAuth);
+        authId = auth.auth_token;
+        domain = auth.domain;
+        console.log('API: Using stored auth token from sessionStorage', {
+          has_auth_token: !!authId,
+          has_domain: !!domain
+        });
+      } catch (e) {
+        console.warn('API: Failed to parse stored auth token', e);
+      }
+    }
     
-    // Если AUTH_ID нет в URL, проверяем sessionStorage (токен мог быть получен через BX24.getAuth())
-    if (!authId) {
-      const storedAuth = sessionStorage.getItem('bitrix24_auth');
-      if (storedAuth) {
-        try {
-          const auth = JSON.parse(storedAuth);
-          authId = auth.auth_token;
-          console.log('API: Using stored auth token from sessionStorage');
-        } catch (e) {
-          console.warn('API: Failed to parse stored auth token', e);
+    // Если токена нет в sessionStorage, проверяем URL параметры
+    if (!authId || !domain) {
+      const params = new URLSearchParams(window.location.search);
+      
+      // Получаем DOMAIN из URL
+      if (!domain) {
+        domain = params.get('DOMAIN');
+      }
+      
+      // Пытаемся получить AUTH_ID из URL (но это может быть APP_SID, который не работает)
+      if (!authId) {
+        authId = params.get('AUTH_ID');
+      }
+      
+      // Если AUTH_ID нет, но есть APP_SID - используем его с предупреждением
+      if (!authId) {
+        authId = params.get('APP_SID');
+        if (authId) {
+          console.warn('API: Using APP_SID from URL - this may not work for API calls');
         }
       }
     }
     
-    // Fallback на APP_SID только если нет другого варианта (но он не будет работать)
-    if (!authId) {
-      authId = params.get('APP_SID');
-      if (authId) {
-        console.warn('API: Using APP_SID as fallback - this may not work for API calls');
+    // Если все еще нет параметров, проверяем router.query (если доступен Vue Router)
+    if ((!authId || !domain) && typeof window !== 'undefined' && window.__VUE_ROUTER__) {
+      try {
+        // Пытаемся получить router из глобального контекста
+        // Это fallback, если router не доступен напрямую
+        const currentRoute = window.location.pathname;
+        const queryString = window.location.search;
+        if (queryString) {
+          const urlParams = new URLSearchParams(queryString);
+          if (!domain) {
+            domain = urlParams.get('DOMAIN');
+          }
+          if (!authId) {
+            authId = urlParams.get('AUTH_ID') || urlParams.get('APP_SID');
+          }
+        }
+      } catch (e) {
+        console.warn('API: Failed to get params from router', e);
       }
     }
     
+    // Добавляем параметры в запрос, если они есть
     if (authId && domain) {
       config.params = {
         ...config.params,
         AUTH_ID: authId,
         DOMAIN: domain,
       };
+      console.log('API: Auth params added to request', {
+        has_auth_id: !!authId,
+        auth_id_length: authId ? authId.length : 0,
+        domain: domain
+      });
+    } else {
+      console.warn('API: Missing AUTH_ID or DOMAIN', {
+        has_auth_id: !!authId,
+        has_domain: !!domain,
+        url_search: window.location.search
+      });
     }
     
     console.log('API Request:', config.method?.toUpperCase(), config.baseURL + config.url, config.params);
