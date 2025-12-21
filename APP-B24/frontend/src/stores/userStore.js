@@ -31,14 +31,67 @@ export const useUserStore = defineStore('user', {
       console.log('UserStore: Starting fetchCurrentUser...');
       
       try {
-        // Логируем параметры запроса
+        // Получаем параметры из URL
         const params = new URLSearchParams(window.location.search);
+        const domain = params.get('DOMAIN');
+        
+        // Пытаемся получить правильный AUTH_ID через BX24.getAuth()
+        // APP_SID не работает для API вызовов, нужен auth_token из BX24.getAuth()
+        let authId = params.get('AUTH_ID');
+        
+        // Если AUTH_ID нет, но есть BX24 API, получаем токен асинхронно
+        if (!authId && typeof BX24 !== 'undefined' && BX24.getAuth) {
+          console.log('UserStore: Getting auth token via BX24.getAuth()...');
+          try {
+            // Получаем токен через Promise
+            const auth = await new Promise((resolve, reject) => {
+              BX24.getAuth(function(authData) {
+                if (authData && authData.auth_token) {
+                  // Сохраняем токен в sessionStorage для последующих запросов
+                  sessionStorage.setItem('bitrix24_auth', JSON.stringify(authData));
+                  resolve(authData);
+                } else {
+                  reject(new Error('Failed to get auth token from BX24'));
+                }
+              });
+            });
+            
+            authId = auth.auth_token;
+            console.log('UserStore: Got auth token from BX24.getAuth()', {
+              auth_token_length: authId ? authId.length : 0,
+              domain: auth.domain || domain
+            });
+          } catch (e) {
+            console.warn('UserStore: Failed to get auth token from BX24.getAuth()', e);
+            // Fallback на APP_SID (но он не будет работать)
+            authId = params.get('APP_SID');
+            if (authId) {
+              console.warn('UserStore: Using APP_SID as fallback - this may not work');
+            }
+          }
+        } else if (!authId) {
+          // Fallback на APP_SID если нет BX24 API
+          authId = params.get('APP_SID');
+          if (authId) {
+            console.warn('UserStore: Using APP_SID as fallback - this may not work for API calls');
+          }
+        }
+        
         console.log('UserStore: Request params:', {
-          AUTH_ID: params.get('AUTH_ID') || params.get('APP_SID') ? 'present' : 'missing',
-          DOMAIN: params.get('DOMAIN') ? 'present' : 'missing'
+          AUTH_ID: authId ? 'present' : 'missing',
+          DOMAIN: domain ? 'present' : 'missing'
         });
         
-        const response = await apiClient.get('/user/current');
+        // Если получили токен через BX24.getAuth(), добавляем его в параметры запроса
+        const requestConfig = {};
+        if (authId && domain) {
+          requestConfig.params = {
+            AUTH_ID: authId,
+            DOMAIN: domain
+          };
+        }
+        
+        const response = await apiClient.get('/user/current', requestConfig);
         
         console.log('UserStore: API response:', {
           success: response.data.success,

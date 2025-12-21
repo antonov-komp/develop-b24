@@ -41,14 +41,38 @@ apiClient.interceptors.request.use(
     
     // Добавление параметров из Bitrix24, если доступны
     const params = new URLSearchParams(window.location.search);
-    // Bitrix24 может передавать APP_SID вместо AUTH_ID
-    const authId = params.get('AUTH_ID') || params.get('APP_SID');
     const domain = params.get('DOMAIN');
+    
+    // Пытаемся получить правильный AUTH_ID
+    // APP_SID не работает для API вызовов, нужен auth_token из BX24.getAuth()
+    let authId = params.get('AUTH_ID');
+    
+    // Если AUTH_ID нет в URL, проверяем sessionStorage (токен мог быть получен через BX24.getAuth())
+    if (!authId) {
+      const storedAuth = sessionStorage.getItem('bitrix24_auth');
+      if (storedAuth) {
+        try {
+          const auth = JSON.parse(storedAuth);
+          authId = auth.auth_token;
+          console.log('API: Using stored auth token from sessionStorage');
+        } catch (e) {
+          console.warn('API: Failed to parse stored auth token', e);
+        }
+      }
+    }
+    
+    // Fallback на APP_SID только если нет другого варианта (но он не будет работать)
+    if (!authId) {
+      authId = params.get('APP_SID');
+      if (authId) {
+        console.warn('API: Using APP_SID as fallback - this may not work for API calls');
+      }
+    }
     
     if (authId && domain) {
       config.params = {
         ...config.params,
-        AUTH_ID: authId, // Всегда используем AUTH_ID в параметрах API
+        AUTH_ID: authId,
         DOMAIN: domain,
       };
     }

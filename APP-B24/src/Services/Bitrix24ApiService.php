@@ -108,13 +108,27 @@ class Bitrix24ApiService
                 $errorCode = $result['error'] ?? 'UNKNOWN';
                 $errorDescription = $result['error_description'] ?? 'No description';
                 
-                $this->logger->logError('User.current API returned error', [
+                $this->logger->logError('User.current API returned error (SDK), trying direct REST API', [
                     'error' => $errorCode,
                     'error_description' => $errorDescription,
-                    'full_result' => $result,
                     'domain' => $domain,
                     'auth_id_length' => strlen($authId)
                 ]);
+                
+                // Fallback: попытка прямого REST API вызова
+                $this->logger->log('Trying direct REST API call as fallback', [
+                    'domain' => $domain,
+                    'auth_id_length' => strlen($authId)
+                ], 'info');
+                
+                $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
+                if ($directResult !== null) {
+                    $this->logger->log('Direct REST API call successful', [
+                        'has_result' => isset($directResult['result']),
+                        'domain' => $domain
+                    ], 'info');
+                    return $directResult['result'] ?? null;
+                }
                 
                 // Логируем детальную информацию об ошибке
                 if ($errorCode === 'INVALID_TOKEN' || $errorCode === 'expired_token') {
@@ -172,18 +186,116 @@ class Bitrix24ApiService
             
             return $userData;
         } catch (Bitrix24ApiException $e) {
-            $this->logger->logError('User.current API error (SDK)', [
+            $this->logger->logError('User.current API error (SDK), trying direct REST API', [
                 'error' => $e->getApiError(),
                 'error_description' => $e->getApiErrorDescription(),
-                'message' => $e->getMessage()
+                'message' => $e->getMessage(),
+                'domain' => $domain,
+                'auth_id_length' => strlen($authId)
             ]);
+            
+            // Fallback: прямой REST API вызов
+            $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
+            if ($directResult !== null && isset($directResult['result'])) {
+                $this->logger->log('Direct REST API call successful (fallback)', [
+                    'has_result' => isset($directResult['result']),
+                    'domain' => $domain
+                ], 'info');
+                return $directResult['result'];
+            }
+            
             return null;
         } catch (\Exception $e) {
-            $this->logger->logError('User.current API exception (SDK)', [
-                'exception' => $e->getMessage()
+            $this->logger->logError('User.current API exception (SDK), trying direct REST API', [
+                'exception' => $e->getMessage(),
+                'domain' => $domain,
+                'auth_id_length' => strlen($authId)
+            ]);
+            
+            // Fallback: прямой REST API вызов
+            $directResult = $this->callDirectRestApi('user.current', $authId, $domain);
+            if ($directResult !== null && isset($directResult['result'])) {
+                $this->logger->log('Direct REST API call successful (fallback)', [
+                    'has_result' => isset($directResult['result']),
+                    'domain' => $domain
+                ], 'info');
+                return $directResult['result'];
+            }
+            
+            return null;
+        }
+    }
+    
+    /**
+     * Прямой вызов Bitrix24 REST API через HTTP
+     * 
+     * Используется как fallback, если SDK не работает
+     * 
+     * @param string $method Метод API
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return array|null Ответ от API или null при ошибке
+     */
+    private function callDirectRestApi(string $method, string $authId, string $domain): ?array
+    {
+        // Очистка домена
+        $domain = preg_replace('#^https?://#', '', $domain);
+        $domain = rtrim($domain, '/');
+        
+        $url = "https://{$domain}/rest/{$method}.json";
+        $params = ['auth' => $authId];
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url . '?' . http_build_query($params));
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        if ($curlError) {
+            $this->logger->logError('Direct REST API call failed (curl error)', [
+                'method' => $method,
+                'curl_error' => $curlError,
+                'domain' => $domain
             ]);
             return null;
         }
+        
+        if ($httpCode !== 200) {
+            $this->logger->logError('Direct REST API call failed (HTTP error)', [
+                'method' => $method,
+                'http_code' => $httpCode,
+                'domain' => $domain
+            ]);
+            return null;
+        }
+        
+        $result = json_decode($response, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $this->logger->logError('Direct REST API call failed (JSON error)', [
+                'method' => $method,
+                'json_error' => json_last_error_msg(),
+                'domain' => $domain
+            ]);
+            return null;
+        }
+        
+        if (isset($result['error'])) {
+            $this->logger->logError('Direct REST API call returned error', [
+                'method' => $method,
+                'error' => $result['error'] ?? 'unknown',
+                'error_description' => $result['error_description'] ?? 'no description',
+                'domain' => $domain
+            ]);
+            return null;
+        }
+        
+        return $result;
     }
     
     /**
