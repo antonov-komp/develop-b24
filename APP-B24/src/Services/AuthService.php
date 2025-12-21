@@ -282,11 +282,11 @@ class AuthService
         $scriptPath = dirname($_SERVER['PHP_SELF'] ?? $_SERVER['SCRIPT_NAME'] ?? '/');
         $scriptPath = rtrim($scriptPath, '/');
         
-        // Формируем относительный путь к failure.php (в той же директории, что и текущий скрипт)
+        // Формируем относительный путь к failure.php (перемещён в public/)
         if ($scriptPath === '' || $scriptPath === '.' || $scriptPath === '/') {
-            $failurePath = '/failure.php';
+            $failurePath = '/public/failure.php';
         } else {
-            $failurePath = $scriptPath . '/failure.php';
+            $failurePath = $scriptPath . '/public/failure.php';
         }
         
         // Формируем абсолютный URL для failure.php с параметром причины

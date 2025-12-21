@@ -2,13 +2,38 @@ import { defineStore } from 'pinia';
 import apiClient from '@/services/api';
 
 export const useUserStore = defineStore('user', {
-  state: () => ({
-    currentUser: null,
-    isAdmin: false,
-    departments: [],
-    loading: false,
-    error: null,
-  }),
+  state: () => {
+    // Получаем данные из sessionStorage при инициализации (переданные из index.php)
+    let initialData = null;
+    try {
+      const appDataStr = sessionStorage.getItem('app_data');
+      if (appDataStr) {
+        initialData = JSON.parse(appDataStr);
+      }
+    } catch (e) {
+      console.warn('UserStore: Failed to parse app_data from sessionStorage', e);
+    }
+    
+    // Инициализируем состояние из данных, переданных из PHP
+    const authInfo = initialData?.authInfo || {};
+    const user = authInfo.user || null;
+    
+    return {
+      currentUser: user ? {
+        ID: user.id,
+        NAME: user.name,
+        LAST_NAME: user.last_name,
+        EMAIL: user.email,
+        ADMIN: user.admin
+      } : null,
+      isAdmin: authInfo.is_admin || false,
+      isAuthenticated: authInfo.is_authenticated || false,
+      departments: [],
+      loading: false,
+      error: null,
+      externalAccessEnabled: initialData?.externalAccessEnabled || false,
+    };
+  },
 
   getters: {
     isAdminUser: (state) => {
@@ -20,6 +45,13 @@ export const useUserStore = defineStore('user', {
       const name = state.currentUser.NAME || '';
       const lastName = state.currentUser.LAST_NAME || '';
       return `${name} ${lastName}`.trim() || 'Пользователь';
+    },
+    
+    authStatus: (state) => {
+      if (state.externalAccessEnabled && !state.isAuthenticated) {
+        return 'external_access';
+      }
+      return state.isAuthenticated ? 'authenticated' : 'not_authenticated';
     },
   },
 

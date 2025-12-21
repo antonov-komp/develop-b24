@@ -73,6 +73,9 @@ function loadVueApp(?string $initialRoute = null): void
     $authExpires = isset($_POST['AUTH_EXPIRES']) ? (int)$_POST['AUTH_EXPIRES'] : (isset($_GET['AUTH_EXPIRES']) ? (int)$_GET['AUTH_EXPIRES'] : null);
     $domain = $_POST['DOMAIN'] ?? $_GET['DOMAIN'] ?? null;
     
+    // Получаем данные из index.php (если были переданы)
+    $vueAppData = $GLOBALS['vue_app_data'] ?? null;
+    
     $bx24Script = '
     <script src="//api.bitrix24.com/api/v1/"></script>
     <script>
@@ -92,6 +95,26 @@ function loadVueApp(?string $initialRoute = null): void
                 auth_token_length: authData.auth_token.length,
                 domain: authData.domain,
                 has_refresh_token: !!authData.refresh_token
+            });
+        })();
+        ' : '') . '
+        
+        // Передача данных из index.php в Vue.js
+        ' . ($vueAppData ? '
+        (function() {
+            const appData = ' . json_encode($vueAppData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . ';
+            
+            // Сохраняем данные в sessionStorage для использования в Vue.js
+            sessionStorage.setItem("app_data", JSON.stringify(appData));
+            
+            // Также сохраняем в window для прямого доступа
+            window.__APP_DATA__ = appData;
+            
+            console.log("App data from PHP saved", {
+                is_authenticated: appData.authInfo?.is_authenticated,
+                is_admin: appData.authInfo?.is_admin,
+                user_name: appData.authInfo?.user?.full_name,
+                external_access: appData.externalAccessEnabled
             });
         })();
         ' : '') . '

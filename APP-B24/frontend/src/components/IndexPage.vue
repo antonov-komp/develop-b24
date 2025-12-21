@@ -63,6 +63,43 @@
               ⚠️ Используется токен установщика (владельца приложения). Токен текущего пользователя не найден в параметрах запроса.
             </p>
           </div>
+          
+          <!-- Информация о текущей авторизации -->
+          <div class="auth-info-section">
+            <h3>Информация о текущей авторизации</h3>
+            <div class="auth-info">
+              <p><strong>Статус авторизации:</strong> 
+                <span :class="authStatusClass">{{ authStatusText }}</span>
+              </p>
+              <p v-if="userStore.externalAccessEnabled">
+                <strong>Внешний доступ:</strong> 
+                <span class="status-enabled">Включен</span>
+              </p>
+              <p v-else>
+                <strong>Внешний доступ:</strong> 
+                <span class="status-disabled">Выключен</span>
+              </p>
+            </div>
+          </div>
+          
+          <!-- Кнопки для администраторов -->
+          <div v-if="isAdmin" class="admin-actions">
+            <h3>Функционал администратора</h3>
+            <div class="admin-buttons">
+              <button 
+                @click="goToTokenAnalysis" 
+                class="admin-btn btn-primary"
+              >
+                🔍 Проверка токена
+              </button>
+              <button 
+                @click="goToAccessControl" 
+                class="admin-btn btn-secondary"
+              >
+                ⚙️ Администрирование
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -71,9 +108,11 @@
 
 <script setup>
 import { computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useUserStore } from '@/stores/userStore';
 import { showSuccess, showError } from '@/utils/bitrix24';
 
+const router = useRouter();
 const userStore = useUserStore();
 
 const user = computed(() => userStore.currentUser);
@@ -99,6 +138,30 @@ const domain = computed(() => {
   const params = new URLSearchParams(window.location.search);
   return params.get('DOMAIN') || 'не указан';
 });
+
+// Информация о статусе авторизации
+const authStatusClass = computed(() => {
+  if (userStore.externalAccessEnabled && !userStore.isAuthenticated) {
+    return 'status-external';
+  }
+  return userStore.isAuthenticated ? 'status-authenticated' : 'status-not-authenticated';
+});
+
+const authStatusText = computed(() => {
+  if (userStore.externalAccessEnabled && !userStore.isAuthenticated) {
+    return 'Внешний доступ (без авторизации Bitrix24)';
+  }
+  return userStore.isAuthenticated ? 'Авторизован' : 'Не авторизован';
+});
+
+// Навигация для администраторов
+const goToTokenAnalysis = () => {
+  router.push('/token-analysis');
+};
+
+const goToAccessControl = () => {
+  router.push('/access-control');
+};
 
 onMounted(async () => {
   console.log('IndexPage mounted, fetching user data...');
@@ -229,6 +292,104 @@ onMounted(async () => {
 
 .token-info.warning {
   color: var(--warning-color);
+}
+
+.auth-info-section {
+  margin-top: 30px;
+  padding: 20px;
+  background: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.auth-info-section h3 {
+  margin: 0 0 15px 0;
+  color: var(--primary-color);
+  font-size: 18px;
+}
+
+.auth-info p {
+  margin: 10px 0;
+  color: var(--text-primary);
+}
+
+.status-authenticated {
+  color: var(--success-color);
+  font-weight: 600;
+}
+
+.status-not-authenticated {
+  color: var(--error-color);
+  font-weight: 600;
+}
+
+.status-external {
+  color: var(--warning-color);
+  font-weight: 600;
+}
+
+.status-enabled {
+  color: var(--success-color);
+  font-weight: 500;
+}
+
+.status-disabled {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.admin-actions {
+  margin-top: 30px;
+  padding: 20px;
+  background: #f0f9ff;
+  border-radius: 6px;
+  border: 1px solid var(--primary-color);
+}
+
+.admin-actions h3 {
+  margin: 0 0 15px 0;
+  color: var(--primary-color);
+  font-size: 18px;
+}
+
+.admin-buttons {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.admin-btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.admin-btn.btn-primary {
+  background: var(--primary-color);
+  color: white;
+}
+
+.admin-btn.btn-primary:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.admin-btn.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.admin-btn.btn-secondary:hover {
+  background: #545b62;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 </style>
 
