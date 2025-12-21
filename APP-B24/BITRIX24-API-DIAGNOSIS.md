@@ -233,3 +233,4 @@ public function getCurrentUserDirect(string $authId, string $domain): ?array
 **Выполнено:** Системный администратор  
 **Проверено:** Проблема идентифицирована, нужны дополнительные действия
 
+

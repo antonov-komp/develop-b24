@@ -340,3 +340,4 @@ $logger->logAccessCheck($userId, $departments, 'granted', 'admin');
 
 
 
+

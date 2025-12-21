@@ -73,3 +73,4 @@ curl -I "https://backend.antonov-mark.ru/APP-B24/api/user.php?action=current&AUT
 
 📖 **Полный план действий:** `DOCS/PLAN/2025-12-21-fix-404-api-endpoints.md`
 
+

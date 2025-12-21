@@ -396,3 +396,4 @@ sudo rm /var/www/backend.antonov-mark.ru/APP-B24/api/debug.php
 - После изменений перезагружайте nginx: `sudo systemctl reload nginx`
 - Сохраняйте резервные копии конфигурации перед изменениями
 
+
