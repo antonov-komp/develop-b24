@@ -52,6 +52,165 @@ class Bitrix24ApiService
     }
     
     /**
+     * Получение текущих прав доступа (scope) приложения
+     * 
+     * Метод: scope
+     * Документация: https://context7.com/bitrix24/rest/scope
+     * 
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return array|null Текущие права доступа или null при ошибке
+     */
+    public function getCurrentScope(string $authId, string $domain): ?array
+    {
+        try {
+            $this->client->initializeWithUserToken($authId, $domain);
+            $result = $this->client->call('scope', []);
+            
+            if (isset($result['error'])) {
+                $this->logger->logError('Failed to get current scope', [
+                    'error' => $result['error'],
+                    'error_description' => $result['error_description'] ?? null
+                ]);
+                return null;
+            }
+            
+            return $result['result'] ?? null;
+        } catch (\Exception $e) {
+            $this->logger->logError('Exception getting current scope', [
+                'exception' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+    
+    /**
+     * Получение всех возможных прав доступа
+     * 
+     * Метод: scope (с параметром full=true)
+     * Документация: https://context7.com/bitrix24/rest/scope
+     * 
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return array|null Все возможные права или null при ошибке
+     */
+    public function getAllAvailableScope(string $authId, string $domain): ?array
+    {
+        try {
+            $this->client->initializeWithUserToken($authId, $domain);
+            $result = $this->client->call('scope', ['full' => true]);
+            
+            if (isset($result['error'])) {
+                $this->logger->logError('Failed to get all available scope', [
+                    'error' => $result['error'],
+                    'error_description' => $result['error_description'] ?? null
+                ]);
+                return null;
+            }
+            
+            return $result['result'] ?? null;
+        } catch (\Exception $e) {
+            $this->logger->logError('Exception getting all available scope', [
+                'exception' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+    
+    /**
+     * Проверка доступности метода API
+     * 
+     * Метод: method.get
+     * Документация: https://context7.com/bitrix24/rest/method.get
+     * 
+     * @param string $methodName Название метода для проверки
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return array|null Информация о доступности метода или null при ошибке
+     */
+    public function checkMethodAvailability(string $methodName, string $authId, string $domain): ?array
+    {
+        try {
+            $this->client->initializeWithUserToken($authId, $domain);
+            $result = $this->client->call('method.get', ['name' => $methodName]);
+            
+            if (isset($result['error'])) {
+                return [
+                    'method' => $methodName,
+                    'is_existing' => false,
+                    'is_available' => false,
+                    'error' => $result['error']
+                ];
+            }
+            
+            return $result['result'] ?? null;
+        } catch (\Exception $e) {
+            $this->logger->logError('Exception checking method availability', [
+                'method' => $methodName,
+                'exception' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+    
+    /**
+     * Получение списка доступных методов API
+     * 
+     * Метод: methods
+     * Документация: https://context7.com/bitrix24/rest/methods
+     * 
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return array|null Список доступных методов или null при ошибке
+     */
+    public function getAvailableMethods(string $authId, string $domain): ?array
+    {
+        try {
+            $this->client->initializeWithUserToken($authId, $domain);
+            $result = $this->client->call('methods', []);
+            
+            if (isset($result['error'])) {
+                $this->logger->logError('Failed to get available methods', [
+                    'error' => $result['error'],
+                    'error_description' => $result['error_description'] ?? null
+                ]);
+                return null;
+            }
+            
+            return $result['result'] ?? null;
+        } catch (\Exception $e) {
+            $this->logger->logError('Exception getting available methods', [
+                'exception' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+    
+    /**
+     * Проверка доступности нескольких методов API
+     * 
+     * @param array $methods Массив названий методов для проверки
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return array Результаты проверки для каждого метода
+     */
+    public function checkMultipleMethodsAvailability(array $methods, string $authId, string $domain): array
+    {
+        $results = [];
+        
+        foreach ($methods as $method) {
+            $checkResult = $this->checkMethodAvailability($method, $authId, $domain);
+            $results[$method] = [
+                'is_existing' => $checkResult['is_existing'] ?? false,
+                'is_available' => $checkResult['is_available'] ?? false,
+                'error' => $checkResult['error'] ?? null
+            ];
+        }
+        
+        return $results;
+    }
+    
+    /**
      * Получение текущего пользователя
      * 
      * Метод: user.current
