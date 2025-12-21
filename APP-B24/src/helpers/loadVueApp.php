@@ -113,6 +113,20 @@ function loadVueApp(?string $initialRoute = null, ?array $appData = null): void
         
         // Передача данных из PHP в Vue.js
         ' . buildVueAppDataScript($vueAppData) . '
+        
+        // Инициализация BX24 SDK для получения правильного токена (если токен не был передан из PHP)
+        if (typeof BX24 !== "undefined" && typeof BX24.init === "function") {
+            BX24.init(function() {
+                // Получаем токен авторизации только если его еще нет в sessionStorage
+                if (!sessionStorage.getItem("bitrix24_auth")) {
+                    BX24.getAuth(function(auth) {
+                        if (auth && auth.auth_token) {
+                            sessionStorage.setItem("bitrix24_auth", JSON.stringify(auth));
+                        }
+                    });
+                }
+            });
+        }
     </script>
     ';
     
@@ -221,7 +235,6 @@ function buildVueAppDataScript(?array $appData): string
     }
     
     return '
-    <script>
         (function() {
             const appData = ' . $jsonData . ';
             
@@ -238,7 +251,6 @@ function buildVueAppDataScript(?array $appData): string
                 external_access: appData.externalAccessEnabled
             });
         })();
-    </script>
     ';
 }
 

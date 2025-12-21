@@ -460,3 +460,4 @@ $this->logger->log('Bitrix24 API success (SDK)', $resultInfo, 'info');
 **Следующий шаг:** Начать с Этапа 1.1 — изучение структуры Response в SDK
 
 
+
