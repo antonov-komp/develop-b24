@@ -1,9 +1,9 @@
 <?php
 /**
- * Вспомогательная функция для загрузки Vue.js приложения
+ * Обёртка для обратной совместимости
  * 
- * Используется в index.php, access-control.php, token-analysis.php
- * для единообразной загрузки Vue.js фронтенда
+ * Использует VueAppService для загрузки Vue.js приложения
+ * Сохраняет старую сигнатуру функции для обратной совместимости
  * 
  * @param string|null $initialRoute Начальный маршрут для роутера Vue.js
  * @param array|null $appData Данные для передачи в Vue.js приложение
@@ -12,6 +12,28 @@
  */
 function loadVueApp(?string $initialRoute = null, ?array $appData = null): void
 {
+    global $vueAppService;
+    
+    // Если сервис не инициализирован, создаём его
+    if (!isset($vueAppService)) {
+        // Проверяем, есть ли LoggerService в глобальной области
+        global $logger;
+        if (!isset($logger)) {
+            require_once(__DIR__ . '/../Services/LoggerService.php');
+            $logger = new App\Services\LoggerService();
+        }
+        require_once(__DIR__ . '/../Services/VueAppService.php');
+        $vueAppService = new App\Services\VueAppService($logger);
+    }
+    
+    $route = $initialRoute ?? '/';
+    $vueAppService->load($route, $appData);
+    
+    // Старый код ниже больше не используется, но оставлен для справки
+    return;
+    
+    // ========== СТАРЫЙ КОД (не используется) ==========
+    /*
     // Определение окружения
     $appEnv = getenv('APP_ENV') ?: 'production';
     
@@ -207,6 +229,7 @@ function loadVueApp(?string $initialRoute = null, ?array $appData = null): void
     // Вывод HTML
     echo $html;
     exit;
+    */
 }
 
 /**

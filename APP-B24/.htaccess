@@ -1,5 +1,22 @@
+# Включение mod_rewrite
+RewriteEngine On
+RewriteBase /APP-B24/
+
+# Редирект старых URL на новую структуру
+# Сохраняем query параметры (AUTH_ID, DOMAIN и т.д.)
+
+# Редирект /token-analysis на index.php с маршрутом
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^token-analysis$ index.php?route=/token-analysis [L,QSA]
+
+# Редирект /access-control на index.php с маршрутом
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^access-control$ index.php?route=/access-control [L,QSA]
+
 # Защита конфигурационных файлов от прямого доступа
-<FilesMatch "^(config\.json|settings\.json|settings\.php)$">
+<FilesMatch "^(config\.json|settings\.json|settings\.php|access-config\.json)$">
     Order allow,deny
     Deny from all
 </FilesMatch>

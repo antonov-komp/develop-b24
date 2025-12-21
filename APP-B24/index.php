@@ -34,9 +34,6 @@ try {
     // Подключение и инициализация сервисов
     require_once(__DIR__ . '/src/bootstrap.php');
     
-    // Подключение функции загрузки Vue.js
-    require_once(__DIR__ . '/src/helpers/loadVueApp.php');
-    
     // Логирование начала работы
     $logger->log('Index page access check', [
         'script' => 'index.php',
@@ -44,16 +41,26 @@ try {
         'timestamp' => date('Y-m-d H:i:s')
     ], 'info');
     
-    // 2. Проверка конфигурации внешнего доступа
+    // 2. Получение маршрута из query параметра или URL
+    $route = $_GET['route'] ?? '/';
+    
+    // Нормализация маршрута (убираем лишние слеши)
+    $route = '/' . trim($route, '/');
+    if ($route === '//') {
+        $route = '/';
+    }
+    
+    // 3. Проверка конфигурации внешнего доступа
     $config = $configService->getIndexPageConfig();
     $externalAccessEnabled = isset($config['external_access']) && $config['external_access'] === true;
     
     $logger->log('Index page config check', [
         'external_access_enabled' => $externalAccessEnabled,
-        'config_enabled' => $config['enabled'] ?? true
+        'config_enabled' => $config['enabled'] ?? true,
+        'route' => $route
     ], 'info');
     
-    // 3. Проверка авторизации Bitrix24 (если внешний доступ выключен)
+    // 4. Проверка авторизации Bitrix24 (если внешний доступ выключен)
     $authResult = false;
     if (!$externalAccessEnabled) {
         $authResult = $authService->checkBitrix24Auth();
@@ -73,29 +80,32 @@ try {
         ], 'info');
     }
     
-    // 4. Получение данных пользователя
-    $authInfo = buildAuthInfo($authResult, $externalAccessEnabled, $userService, $logger);
+    // 5. Получение данных пользователя (только для главной страницы)
+    $vueAppData = null;
+    if ($route === '/') {
+        $authInfo = buildAuthInfo($authResult, $externalAccessEnabled, $userService, $logger);
+        
+        // Построение данных для Vue.js
+        $vueAppData = [
+            'authInfo' => $authInfo,
+            'externalAccessEnabled' => $externalAccessEnabled
+        ];
+        
+        // Валидация данных перед передачей в Vue.js
+        validateVueAppData($vueAppData, $logger);
+        
+        // Логирование данных перед передачей
+        $logger->log('Index page data prepared for Vue.js', [
+            'is_authenticated' => $authInfo['is_authenticated'] ?? false,
+            'is_admin' => $authInfo['is_admin'] ?? false,
+            'has_user' => !empty($authInfo['user']),
+            'external_access' => $externalAccessEnabled
+        ], 'info');
+    }
     
-    // 5. Построение данных для Vue.js
-    $vueAppData = [
-        'authInfo' => $authInfo,
-        'externalAccessEnabled' => $externalAccessEnabled
-    ];
-    
-    // Валидация данных перед передачей в Vue.js
-    validateVueAppData($vueAppData, $logger);
-    
-    // Логирование данных перед передачей
-    $logger->log('Index page data prepared for Vue.js', [
-        'is_authenticated' => $authInfo['is_authenticated'] ?? false,
-        'is_admin' => $authInfo['is_admin'] ?? false,
-        'has_user' => !empty($authInfo['user']),
-        'external_access' => $externalAccessEnabled
-    ], 'info');
-    
-    // 6. Загрузка Vue.js приложения с данными
-    // (Vue.js отобразит весь UI)
-    loadVueApp('/', $vueAppData);
+    // 6. Загрузка Vue.js приложения через сервис
+    // $vueAppService инициализирован в bootstrap.php
+    $vueAppService->load($route, $vueAppData);
     
 } catch (\Throwable $e) {
     // Единая точка обработки критических ошибок

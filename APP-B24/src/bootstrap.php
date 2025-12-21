@@ -65,3 +65,7 @@ $authService = new App\Services\AuthService($configService, $accessControlServic
 $domainResolver = new App\Helpers\DomainResolver($configService);
 $adminChecker = new App\Helpers\AdminChecker($apiService);
 
+// Инициализация VueAppService
+require_once(__DIR__ . '/Services/VueAppService.php');
+$vueAppService = new App\Services\VueAppService($logger);
+
