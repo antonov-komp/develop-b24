@@ -70,7 +70,9 @@ export function getUrlParams() {
  */
 export function getBitrix24AuthParams() {
   const params = new URLSearchParams(window.location.search);
-  const authId = params.get('AUTH_ID') || params.get('APP_SID');
+  // ВАЖНО: Для API запросов используем только AUTH_ID, не APP_SID
+  // APP_SID не работает для API вызовов (возвращает UNAUTHORIZED)
+  const authId = params.get('AUTH_ID'); // Убрали fallback на APP_SID для API
   const domain = params.get('DOMAIN');
   return { authId, domain };
 }

@@ -339,3 +339,4 @@ $logger->logAccessCheck($userId, $departments, 'granted', 'admin');
 **Дата создания:** 2025-12-20 22:00 (UTC+3, Брест)
 
 
+
