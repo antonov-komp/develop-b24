@@ -35,45 +35,101 @@ export const useUserStore = defineStore('user', {
         const params = new URLSearchParams(window.location.search);
         const domain = params.get('DOMAIN');
         
-        // Пытаемся получить правильный AUTH_ID через BX24.getAuth()
-        // APP_SID не работает для API вызовов, нужен auth_token из BX24.getAuth()
+        // Пытаемся получить правильный AUTH_ID
+        // APP_SID не работает для API вызовов, нужен auth_token
         let authId = params.get('AUTH_ID');
         
-        // Если AUTH_ID нет, но есть BX24 API, получаем токен асинхронно
-        if (!authId && typeof BX24 !== 'undefined' && BX24.getAuth) {
-          console.log('UserStore: Getting auth token via BX24.getAuth()...');
-          try {
-            // Получаем токен через Promise
-            const auth = await new Promise((resolve, reject) => {
-              BX24.getAuth(function(authData) {
-                if (authData && authData.auth_token) {
-                  // Сохраняем токен в sessionStorage для последующих запросов
-                  sessionStorage.setItem('bitrix24_auth', JSON.stringify(authData));
-                  resolve(authData);
-                } else {
-                  reject(new Error('Failed to get auth token from BX24'));
-                }
+        // Логируем доступность BX24 API
+        console.log('UserStore: BX24 API check:', {
+          hasBX: typeof BX !== 'undefined',
+          hasBX24: typeof BX24 !== 'undefined',
+          hasBX24GetAuth: typeof BX24 !== 'undefined' && typeof BX24.getAuth === 'function',
+          hasStoredAuth: !!sessionStorage.getItem('bitrix24_auth')
+        });
+        
+        // Если AUTH_ID нет, пытаемся получить токен
+        if (!authId) {
+          // Сначала проверяем sessionStorage
+          const storedAuth = sessionStorage.getItem('bitrix24_auth');
+          if (storedAuth) {
+            try {
+              const auth = JSON.parse(storedAuth);
+              authId = auth.auth_token;
+              console.log('UserStore: Using stored auth token from sessionStorage', {
+                auth_token_length: authId ? authId.length : 0
               });
-            });
-            
-            authId = auth.auth_token;
-            console.log('UserStore: Got auth token from BX24.getAuth()', {
-              auth_token_length: authId ? authId.length : 0,
-              domain: auth.domain || domain
-            });
-          } catch (e) {
-            console.warn('UserStore: Failed to get auth token from BX24.getAuth()', e);
-            // Fallback на APP_SID (но он не будет работать)
-            authId = params.get('APP_SID');
-            if (authId) {
-              console.warn('UserStore: Using APP_SID as fallback - this may not work');
+            } catch (e) {
+              console.warn('UserStore: Failed to parse stored auth token', e);
             }
           }
-        } else if (!authId) {
-          // Fallback на APP_SID если нет BX24 API
-          authId = params.get('APP_SID');
-          if (authId) {
-            console.warn('UserStore: Using APP_SID as fallback - this may not work for API calls');
+          
+          // Если токена нет в sessionStorage, пытаемся получить через BX24.getAuth()
+          // Но сначала проверяем, может быть токен уже был передан из PHP
+          if (!authId) {
+            // Пытаемся инициализировать BX24, если он доступен, но еще не инициализирован
+            if (typeof BX24 !== 'undefined' && typeof BX24.init === 'function') {
+              console.log('UserStore: Initializing BX24...');
+              try {
+                await new Promise((resolve, reject) => {
+                  const timeout = setTimeout(() => {
+                    reject(new Error('BX24.init() timeout'));
+                  }, 3000);
+                  
+                  BX24.init(function() {
+                    clearTimeout(timeout);
+                    console.log('UserStore: BX24 initialized');
+                    resolve();
+                  });
+                });
+              } catch (e) {
+                console.warn('UserStore: Failed to initialize BX24', e);
+              }
+            }
+            
+            // Теперь пытаемся получить токен через BX24.getAuth()
+            if (typeof BX24 !== 'undefined' && typeof BX24.getAuth === 'function') {
+              console.log('UserStore: Getting auth token via BX24.getAuth()...');
+              try {
+                // Получаем токен через Promise с меньшим таймаутом
+                const auth = await new Promise((resolve, reject) => {
+                  // Таймаут на случай, если BX24.getAuth не ответит
+                  const timeout = setTimeout(() => {
+                    reject(new Error('BX24.getAuth() timeout'));
+                  }, 3000);
+                  
+                  BX24.getAuth(function(authData) {
+                    clearTimeout(timeout);
+                    if (authData && authData.auth_token) {
+                      // Сохраняем токен в sessionStorage для последующих запросов
+                      sessionStorage.setItem('bitrix24_auth', JSON.stringify(authData));
+                      resolve(authData);
+                    } else {
+                      reject(new Error('Failed to get auth token from BX24: no auth_token in response'));
+                    }
+                  });
+                });
+                
+                authId = auth.auth_token;
+                console.log('UserStore: Got auth token from BX24.getAuth()', {
+                  auth_token_length: authId ? authId.length : 0,
+                  domain: auth.domain || domain
+                });
+              } catch (e) {
+                console.warn('UserStore: Failed to get auth token from BX24.getAuth()', e);
+                // Не используем APP_SID как fallback, так как он не работает для API
+              }
+            }
+            
+            // Если все еще нет токена, используем APP_SID (но он не будет работать)
+            if (!authId) {
+              authId = params.get('APP_SID');
+              if (authId) {
+                console.warn('UserStore: Using APP_SID as fallback - this may not work for API calls', {
+                  reason: typeof BX24 === 'undefined' ? 'BX24 is undefined' : 
+                          (typeof BX24.getAuth !== 'function' ? 'BX24.getAuth is not a function' : 'BX24.getAuth() timeout')
+                });
+              }
+            }
           }
         }
         
