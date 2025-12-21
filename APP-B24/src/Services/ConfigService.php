@@ -14,6 +14,12 @@ class ConfigService
     protected string $configDir;
     protected LoggerService $logger;
     
+    // Кеширование конфигурации прав доступа
+    protected static ?array $accessConfigCache = null;
+    protected static ?int $accessConfigCacheTime = null;
+    protected static ?int $accessConfigFileMtime = null;
+    protected int $cacheTtl = 60; // TTL кеша в секундах
+    
     public function __construct(LoggerService $logger)
     {
         $this->configDir = __DIR__ . '/../../';
@@ -103,6 +109,9 @@ class ConfigService
     /**
      * Получение конфигурации прав доступа
      * 
+     * Использует кеширование для оптимизации производительности.
+     * Кеш инвалидируется при изменении файла (mtime) или истечении TTL.
+     * 
      * @return array Конфигурация прав доступа
      */
     public function getAccessConfig(): array
@@ -118,26 +127,79 @@ class ConfigService
             ]
         ];
         
+        $currentMtime = file_exists($configFile) ? filemtime($configFile) : 0;
+        
+        // Проверка кеша: TTL + время модификации файла
+        if (self::$accessConfigCache !== null && 
+            self::$accessConfigCacheTime !== null &&
+            self::$accessConfigFileMtime !== null &&
+            (time() - self::$accessConfigCacheTime) < $this->cacheTtl &&
+            self::$accessConfigFileMtime === $currentMtime) {
+            $this->logger->log('ConfigService: Using cached access config', [
+                'cache_age' => time() - self::$accessConfigCacheTime,
+                'file_mtime' => $currentMtime
+            ], 'debug');
+            return self::$accessConfigCache;
+        }
+        
+        // Чтение из файла
+        $this->logger->log('ConfigService: Reading access config from file', [
+            'file' => $configFile,
+            'file_exists' => file_exists($configFile),
+            'file_mtime' => $currentMtime
+        ], 'debug');
+        
         if (!file_exists($configFile)) {
+            self::$accessConfigCache = $defaultConfig;
+            self::$accessConfigCacheTime = time();
+            self::$accessConfigFileMtime = 0;
             return $defaultConfig;
         }
         
         $configContent = @file_get_contents($configFile);
         if ($configContent === false) {
+            self::$accessConfigCache = $defaultConfig;
+            self::$accessConfigCacheTime = time();
+            self::$accessConfigFileMtime = $currentMtime;
             return $defaultConfig;
         }
         
         $config = @json_decode($configContent, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
+            self::$accessConfigCache = $defaultConfig;
+            self::$accessConfigCacheTime = time();
+            self::$accessConfigFileMtime = $currentMtime;
             return $defaultConfig;
         }
         
         // Убеждаемся, что структура правильная
         if (!isset($config['access_control'])) {
+            self::$accessConfigCache = $defaultConfig;
+            self::$accessConfigCacheTime = time();
+            self::$accessConfigFileMtime = $currentMtime;
             return $defaultConfig;
         }
         
+        // Сохранение в кеш
+        self::$accessConfigCache = $config;
+        self::$accessConfigCacheTime = time();
+        self::$accessConfigFileMtime = $currentMtime;
+        
         return $config;
+    }
+    
+    /**
+     * Очистка кеша конфигурации прав доступа
+     * 
+     * Вызывается автоматически при сохранении конфигурации.
+     * Может быть вызвана вручную для принудительной инвалидации кеша.
+     */
+    public function clearAccessConfigCache(): void
+    {
+        self::$accessConfigCache = null;
+        self::$accessConfigCacheTime = null;
+        self::$accessConfigFileMtime = null;
+        $this->logger->log('ConfigService: Access config cache cleared', [], 'debug');
     }
     
     /**
@@ -200,52 +262,113 @@ class ConfigService
             }
         }
         
-        // Пробуем сохранить файл
-        // Сначала пробуем с блокировкой
-        $result = @file_put_contents($configFile, $json, LOCK_EX);
+        // Пытаемся получить блокировку с retry механизмом
+        $maxRetries = 3;
+        $lockTimeout = 5; // секунд
+        $fp = null;
+        $locked = false;
         
-        // Если не получилось, пробуем без блокировки
-        if ($result === false) {
-            $result = @file_put_contents($configFile, $json);
-        }
-        
-        if ($result === false) {
-            $error = 'Ошибка записи файла. Проверьте права доступа и место на диске.';
-            $lastError = error_get_last();
-            if ($lastError) {
-                $error .= ' (' . $lastError['message'] . ')';
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            $fp = @fopen($configFile, 'c+');
+            if (!$fp) {
+                if ($attempt < $maxRetries) {
+                    usleep(100000 * $attempt); // Экспоненциальный backoff
+                    continue;
+                }
+                $error = 'Не удалось открыть файл для записи';
+                $this->logger->logAccessConfigSaveError($error, [
+                    'file' => $configFile,
+                    'attempts' => $attempt
+                ]);
+                return ['success' => false, 'error' => $error];
             }
             
-            // Детальное логирование ошибки
-            $errorLog = [
-                'timestamp' => date('Y-m-d H:i:s'),
-                'error' => $error,
+            // Пытаемся получить эксклюзивную блокировку
+            $lockStart = time();
+            $locked = false;
+            
+            while ((time() - $lockStart) < $lockTimeout) {
+                if (flock($fp, LOCK_EX | LOCK_NB)) {
+                    $locked = true;
+                    break;
+                }
+                usleep(100000 * $attempt); // Экспоненциальный backoff
+            }
+            
+            if ($locked) {
+                break;
+            }
+            
+            fclose($fp);
+            $fp = null;
+            
+            if ($attempt < $maxRetries) {
+                $this->logger->log('ConfigService: Lock retry attempt', [
+                    'attempt' => $attempt,
+                    'max_retries' => $maxRetries
+                ], 'debug');
+                usleep(200000 * $attempt); // Задержка перед следующей попыткой
+            }
+        }
+        
+        if (!$fp || !$locked) {
+            if ($fp) {
+                fclose($fp);
+            }
+            $error = 'Не удалось получить блокировку файла после ' . $maxRetries . ' попыток';
+            $this->logger->logAccessConfigSaveError($error, [
                 'file' => $configFile,
-                'file_exists' => file_exists($configFile),
-                'is_writable' => is_writable($configFile),
-                'is_dir_writable' => is_writable(dirname($configFile)),
-                'file_perms' => file_exists($configFile) ? substr(sprintf('%o', fileperms($configFile)), -4) : 'N/A',
-                'file_owner' => file_exists($configFile) ? fileowner($configFile) : 'N/A',
-                'file_group' => file_exists($configFile) ? filegroup($configFile) : 'N/A',
-                'current_user' => get_current_user(),
-                'process_user' => function_exists('posix_geteuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? 'unknown') : 'unknown',
-                'disk_free_space' => disk_free_space(dirname($configFile)),
-                'json_length' => strlen($json),
-                'last_error' => $lastError
-            ];
-            
-            $this->logger->logAccessConfigSaveError($error, $errorLog);
-            
+                'attempts' => $maxRetries
+            ]);
             return ['success' => false, 'error' => $error];
         }
         
-        // Логируем успешное сохранение
-        $this->logger->logAccessConfigSaveSuccess([
-            'file' => $configFile,
-            'bytes' => $result
-        ]);
-        
-        return ['success' => true, 'error' => null];
+        try {
+            // Запись в файл
+            ftruncate($fp, 0);
+            rewind($fp);
+            $bytesWritten = fwrite($fp, $json);
+            fflush($fp);
+            
+            // Синхронизация на диск (если доступно)
+            if (function_exists('fsync')) {
+                fsync($fp);
+            }
+            
+            if ($bytesWritten === false || $bytesWritten !== strlen($json)) {
+                $error = 'Ошибка записи в файл';
+                $this->logger->logAccessConfigSaveError($error, [
+                    'file' => $configFile,
+                    'expected_bytes' => strlen($json),
+                    'written_bytes' => $bytesWritten === false ? 0 : $bytesWritten
+                ]);
+                return ['success' => false, 'error' => $error];
+            }
+            
+            // Очистка кеша после успешного сохранения
+            $this->clearAccessConfigCache();
+            
+            // Логируем успешное сохранение
+            $this->logger->logAccessConfigSaveSuccess([
+                'file' => $configFile,
+                'bytes' => $bytesWritten,
+                'attempts' => $attempt
+            ]);
+            
+            return ['success' => true, 'error' => null];
+        } catch (\Exception $e) {
+            $this->logger->logAccessConfigSaveError('Exception during file write', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return ['success' => false, 'error' => 'Ошибка записи: ' . $e->getMessage()];
+        } finally {
+            // Снятие блокировки
+            if ($fp) {
+                flock($fp, LOCK_UN);
+                fclose($fp);
+            }
+        }
     }
     
     /**

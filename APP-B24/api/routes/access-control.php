@@ -83,19 +83,90 @@ switch ($method) {
         break;
         
     case 'POST':
-        // Добавление отдела или пользователя
+        // Добавление отдела, пользователя или переключение enabled
         $input = json_decode(file_get_contents('php://input'), true) ?: [];
         
-        if ($subRoute === 'departments') {
-            $deptId = $input['department_id'] ?? null;
-            $deptName = $input['department_name'] ?? null;
+        if ($subRoute === 'toggle') {
+            // Переключение включения/выключения проверки прав доступа
+            $enabled = $input['enabled'] ?? null;
             
-            if (!$deptId || !$deptName) {
+            if ($enabled === null) {
                 http_response_code(400);
                 echo json_encode([
                     'success' => false,
                     'error' => 'Bad request',
-                    'message' => 'department_id and department_name are required'
+                    'message' => 'enabled parameter is required'
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
+            // Валидация типа данных
+            if (!is_bool($enabled) && !in_array($enabled, [0, 1, '0', '1', 'true', 'false'], true)) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Bad request',
+                    'message' => 'enabled must be a boolean value'
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
+            // Нормализация значения
+            $enabled = filter_var($enabled, FILTER_VALIDATE_BOOLEAN);
+            
+            $result = $accessControlService->toggleAccessControl(
+                (bool)$enabled,
+                [
+                    'id' => $currentUser['ID'],
+                    'name' => trim(($currentUser['NAME'] ?? '') . ' ' . ($currentUser['LAST_NAME'] ?? ''))
+                ]
+            );
+            
+            if ($result['success']) {
+                echo json_encode([
+                    'success' => true,
+                    'data' => $result
+                ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            } else {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => $result['error'] ?? 'Failed to toggle access control'
+                ], JSON_UNESCAPED_UNICODE);
+            }
+        } elseif ($subRoute === 'departments') {
+            $deptId = $input['department_id'] ?? null;
+            $deptName = $input['department_name'] ?? null;
+            
+            // Детальная валидация
+            $errors = [];
+            
+            if ($deptId === null) {
+                $errors[] = 'department_id is required';
+            } elseif (!is_numeric($deptId)) {
+                $errors[] = 'department_id must be a number';
+            } elseif ((int)$deptId <= 0) {
+                $errors[] = 'department_id must be greater than 0';
+            } elseif ((int)$deptId > PHP_INT_MAX) {
+                $errors[] = 'department_id is too large';
+            }
+            
+            if ($deptName === null) {
+                $errors[] = 'department_name is required';
+            } elseif (!is_string($deptName)) {
+                $errors[] = 'department_name must be a string';
+            } elseif (strlen(trim($deptName)) === 0) {
+                $errors[] = 'department_name cannot be empty';
+            } elseif (strlen($deptName) > 255) {
+                $errors[] = 'department_name is too long (max 255 characters)';
+            }
+            
+            if (!empty($errors)) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Validation failed',
+                    'errors' => $errors
                 ], JSON_UNESCAPED_UNICODE);
                 exit;
             }
@@ -126,12 +197,45 @@ switch ($method) {
             $userName = $input['user_name'] ?? null;
             $userEmail = $input['user_email'] ?? null;
             
-            if (!$userId || !$userName) {
+            // Детальная валидация
+            $errors = [];
+            
+            if ($userId === null) {
+                $errors[] = 'user_id is required';
+            } elseif (!is_numeric($userId)) {
+                $errors[] = 'user_id must be a number';
+            } elseif ((int)$userId <= 0) {
+                $errors[] = 'user_id must be greater than 0';
+            } elseif ((int)$userId > PHP_INT_MAX) {
+                $errors[] = 'user_id is too large';
+            }
+            
+            if ($userName === null) {
+                $errors[] = 'user_name is required';
+            } elseif (!is_string($userName)) {
+                $errors[] = 'user_name must be a string';
+            } elseif (strlen(trim($userName)) === 0) {
+                $errors[] = 'user_name cannot be empty';
+            } elseif (strlen($userName) > 255) {
+                $errors[] = 'user_name is too long (max 255 characters)';
+            }
+            
+            if ($userEmail !== null && !empty($userEmail)) {
+                if (!is_string($userEmail)) {
+                    $errors[] = 'user_email must be a string';
+                } elseif (!filter_var($userEmail, FILTER_VALIDATE_EMAIL)) {
+                    $errors[] = 'user_email must be a valid email address';
+                } elseif (strlen($userEmail) > 255) {
+                    $errors[] = 'user_email is too long (max 255 characters)';
+                }
+            }
+            
+            if (!empty($errors)) {
                 http_response_code(400);
                 echo json_encode([
                     'success' => false,
-                    'error' => 'Bad request',
-                    'message' => 'user_id and user_name are required'
+                    'error' => 'Validation failed',
+                    'errors' => $errors
                 ], JSON_UNESCAPED_UNICODE);
                 exit;
             }
@@ -171,33 +275,53 @@ switch ($method) {
     case 'DELETE':
         // Удаление отдела или пользователя
         if ($subRoute === 'departments' && $resourceId) {
+            // Валидация ID
+            if (!is_numeric($resourceId) || (int)$resourceId <= 0) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Invalid department ID'
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
             $result = $accessControlService->removeDepartment((int)$resourceId);
             
-            if ($result['success']) {
+            if ($result) {
                 echo json_encode([
                     'success' => true,
-                    'data' => $result
+                    'message' => 'Department removed successfully'
                 ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             } else {
                 http_response_code(400);
                 echo json_encode([
                     'success' => false,
-                    'error' => $result['error'] ?? 'Failed to remove department'
+                    'error' => 'Failed to remove department'
                 ], JSON_UNESCAPED_UNICODE);
             }
         } elseif ($subRoute === 'users' && $resourceId) {
+            // Валидация ID
+            if (!is_numeric($resourceId) || (int)$resourceId <= 0) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Invalid user ID'
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            
             $result = $accessControlService->removeUser((int)$resourceId);
             
-            if ($result['success']) {
+            if ($result) {
                 echo json_encode([
                     'success' => true,
-                    'data' => $result
+                    'message' => 'User removed successfully'
                 ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             } else {
                 http_response_code(400);
                 echo json_encode([
                     'success' => false,
-                    'error' => $result['error'] ?? 'Failed to remove user'
+                    'error' => 'Failed to remove user'
                 ], JSON_UNESCAPED_UNICODE);
             }
         } else {

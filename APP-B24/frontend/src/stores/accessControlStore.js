@@ -117,6 +117,24 @@ export const useAccessControlStore = defineStore('accessControl', {
         throw error;
       }
     },
+    
+    async toggleEnabled(enabled) {
+      try {
+        const response = await apiClient.post('/access-control/toggle', {
+          enabled: enabled,
+        });
+        
+        if (response.data.success) {
+          await this.fetchConfig(); // Обновляем конфигурацию
+          return { success: true };
+        } else {
+          throw new Error(response.data.message || 'Failed to toggle access control');
+        }
+      } catch (error) {
+        this.error = error.response?.data?.message || error.message || 'Ошибка переключения проверки';
+        throw error;
+      }
+    },
   },
 });
 

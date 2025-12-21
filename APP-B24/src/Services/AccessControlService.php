@@ -39,63 +39,166 @@ class AccessControlService
      */
     public function checkUserAccess(int $userId, array $userDepartments, string $authId, string $domain): bool
     {
-        // Получаем данные пользователя для проверки статуса администратора
-        $user = $this->userService->getCurrentUser($authId, $domain);
+        $startTime = microtime(true);
+        $startMemory = memory_get_usage();
         
-        if (!$user) {
-            // Не удалось получить данные пользователя — запрещаем доступ
-            $this->logger->logAccessCheck($userId, $userDepartments, 'denied', 'user_data_error');
-            return false;
-        }
-        
-        // Проверка статуса администратора
-        if ($this->userService->isAdmin($user, $authId, $domain)) {
-            // Администраторы всегда имеют доступ
-            $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'admin');
-            return true;
-        }
-        
-        // Получаем конфигурацию прав доступа
-        $accessConfig = $this->configService->getAccessConfig();
-        
-        // Если проверка отключена — доступ разрешён
-        if (!isset($accessConfig['access_control']['enabled']) || !$accessConfig['access_control']['enabled']) {
-            $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'check_disabled');
-            return true;
-        }
-        
-        $departments = $accessConfig['access_control']['departments'] ?? [];
-        $users = $accessConfig['access_control']['users'] ?? [];
-        
-        // Если списки пустые — доступ запрещён
-        if (empty($departments) && empty($users)) {
-            $this->logger->logAccessCheck($userId, $userDepartments, 'denied', 'no_access_rules');
-            return false;
-        }
-        
-        // Проверка, есть ли отдел пользователя в списке
-        if (!empty($userDepartments) && is_array($userDepartments)) {
-            foreach ($userDepartments as $deptId) {
+        try {
+            // Получаем данные пользователя для проверки статуса администратора
+            $userStartTime = microtime(true);
+            $user = $this->userService->getCurrentUser($authId, $domain);
+            $userTime = microtime(true) - $userStartTime;
+            
+            if (!$user) {
+                // Не удалось получить данные пользователя — запрещаем доступ
+                $this->logger->logAccessCheck($userId, $userDepartments, 'denied', 'user_data_error', [
+                    'performance' => [
+                        'total_time' => microtime(true) - $startTime,
+                        'user_fetch_time' => $userTime,
+                        'memory_used' => memory_get_usage() - $startMemory
+                    ]
+                ]);
+                return false;
+            }
+            
+            // Проверка статуса администратора
+            $adminCheckStartTime = microtime(true);
+            if ($this->userService->isAdmin($user, $authId, $domain)) {
+                // Администраторы всегда имеют доступ
+                $adminCheckTime = microtime(true) - $adminCheckStartTime;
+                $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'admin', [
+                    'performance' => [
+                        'total_time' => microtime(true) - $startTime,
+                        'user_fetch_time' => $userTime,
+                        'admin_check_time' => $adminCheckTime,
+                        'memory_used' => memory_get_usage() - $startMemory
+                    ]
+                ]);
+                return true;
+            }
+            $adminCheckTime = microtime(true) - $adminCheckStartTime;
+            
+            // Получаем конфигурацию прав доступа
+            $configStartTime = microtime(true);
+            $accessConfig = $this->configService->getAccessConfig();
+            $configTime = microtime(true) - $configStartTime;
+            
+            // Если проверка отключена — доступ разрешён
+            if (!isset($accessConfig['access_control']['enabled']) || !$accessConfig['access_control']['enabled']) {
+                $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'check_disabled', [
+                    'performance' => [
+                        'total_time' => microtime(true) - $startTime,
+                        'config_fetch_time' => $configTime,
+                        'memory_used' => memory_get_usage() - $startMemory
+                    ]
+                ]);
+                return true;
+            }
+            
+            $departments = $accessConfig['access_control']['departments'] ?? [];
+            $users = $accessConfig['access_control']['users'] ?? [];
+            
+            // Если списки пустые — доступ запрещён
+            if (empty($departments) && empty($users)) {
+                $this->logger->logAccessCheck($userId, $userDepartments, 'denied', 'no_access_rules', [
+                    'performance' => [
+                        'total_time' => microtime(true) - $startTime,
+                        'config_fetch_time' => $configTime,
+                        'memory_used' => memory_get_usage() - $startMemory
+                    ]
+                ]);
+                return false;
+            }
+            
+            // Оптимизация: создаём массив ID отделов для быстрого поиска O(1)
+            $deptIndexStartTime = microtime(true);
+            $departmentIds = [];
+            if (!empty($departments) && is_array($departments)) {
                 foreach ($departments as $dept) {
-                    if (isset($dept['id']) && $dept['id'] == $deptId) {
-                        $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'department_in_list');
+                    if (isset($dept['id'])) {
+                        $departmentIds[(int)$dept['id']] = true;
+                    }
+                }
+            }
+            $deptIndexTime = microtime(true) - $deptIndexStartTime;
+            
+            // Проверка отделов - O(1) для каждого отдела
+            $deptCheckStartTime = microtime(true);
+            if (!empty($userDepartments) && is_array($userDepartments)) {
+                foreach ($userDepartments as $deptId) {
+                    if (isset($departmentIds[(int)$deptId])) {
+                        $deptCheckTime = microtime(true) - $deptCheckStartTime;
+                        $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'department_in_list', [
+                            'performance' => [
+                                'total_time' => microtime(true) - $startTime,
+                                'config_fetch_time' => $configTime,
+                                'department_index_time' => $deptIndexTime,
+                                'department_check_time' => $deptCheckTime,
+                                'departments_count' => count($departments),
+                                'user_departments_count' => count($userDepartments),
+                                'memory_used' => memory_get_usage() - $startMemory
+                            ]
+                        ]);
                         return true;
                     }
                 }
             }
-        }
-        
-        // Проверка, есть ли пользователь в списке
-        foreach ($users as $user) {
-            if (isset($user['id']) && $user['id'] == $userId) {
-                $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'user_in_list');
+            $deptCheckTime = microtime(true) - $deptCheckStartTime;
+            
+            // Оптимизация: создаём массив ID пользователей для быстрого поиска O(1)
+            $userIndexStartTime = microtime(true);
+            $userIds = [];
+            if (!empty($users) && is_array($users)) {
+                foreach ($users as $user) {
+                    if (isset($user['id'])) {
+                        $userIds[(int)$user['id']] = true;
+                    }
+                }
+            }
+            $userIndexTime = microtime(true) - $userIndexStartTime;
+            
+            // Проверка пользователей - O(1)
+            $userCheckStartTime = microtime(true);
+            if (isset($userIds[$userId])) {
+                $userCheckTime = microtime(true) - $userCheckStartTime;
+                $this->logger->logAccessCheck($userId, $userDepartments, 'granted', 'user_in_list', [
+                    'performance' => [
+                        'total_time' => microtime(true) - $startTime,
+                        'config_fetch_time' => $configTime,
+                        'user_index_time' => $userIndexTime,
+                        'user_check_time' => $userCheckTime,
+                        'users_count' => count($users),
+                        'memory_used' => memory_get_usage() - $startMemory
+                    ]
+                ]);
                 return true;
             }
+            $userCheckTime = microtime(true) - $userCheckStartTime;
+            
+            // Доступ запрещён
+            $this->logger->logAccessCheck($userId, $userDepartments, 'denied', 'not_in_lists', [
+                'performance' => [
+                    'total_time' => microtime(true) - $startTime,
+                    'config_fetch_time' => $configTime,
+                    'department_index_time' => $deptIndexTime,
+                    'department_check_time' => $deptCheckTime,
+                    'user_index_time' => $userIndexTime,
+                    'user_check_time' => $userCheckTime,
+                    'departments_count' => count($departments),
+                    'users_count' => count($users),
+                    'memory_used' => memory_get_usage() - $startMemory
+                ]
+            ]);
+            return false;
+        } catch (\Exception $e) {
+            $this->logger->logAccessCheck($userId, $userDepartments, 'denied', 'exception', [
+                'error' => $e->getMessage(),
+                'performance' => [
+                    'total_time' => microtime(true) - $startTime,
+                    'memory_used' => memory_get_usage() - $startMemory
+                ]
+            ]);
+            return false;
         }
-        
-        // Доступ запрещён
-        $this->logger->logAccessCheck($userId, $userDepartments, 'denied', 'not_in_lists');
-        return false;
     }
     
     /**

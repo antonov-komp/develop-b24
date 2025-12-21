@@ -18,21 +18,28 @@
         <div v-else>
           <!-- Переключатель включения/выключения -->
           <div class="toggle-section">
-            <label>
+            <label class="toggle-label">
               <input 
                 type="checkbox" 
                 v-model="enabled" 
-                @change="toggleEnabled"
-                :disabled="saving"
+                :disabled="saving || loading"
+                class="toggle-input"
               />
-              Включить проверку прав доступа
+              <span class="toggle-slider" :class="{ 'disabled': saving || loading }"></span>
+              <span class="toggle-text">
+                Включить проверку прав доступа
+                <span v-if="saving" class="saving-indicator">Сохранение...</span>
+              </span>
             </label>
+            <div v-if="toggleError" class="error-message">
+              {{ toggleError }}
+            </div>
           </div>
           
           <!-- Отделы с доступом -->
           <div class="departments-section">
             <h2>Отделы с доступом</h2>
-            <div v-if="store.enabledDepartments.length > 0" class="list">
+            <transition-group name="list-item" tag="div" v-if="store.enabledDepartments.length > 0" class="list">
               <div 
                 v-for="dept in store.enabledDepartments" 
                 :key="dept.id"
@@ -43,11 +50,13 @@
                   @click="removeDepartment(dept.id)"
                   :disabled="saving"
                   class="btn btn-danger"
+                  :class="{ 'loading': saving && removingDeptId === dept.id }"
                 >
-                  Удалить
+                  <span v-if="!(saving && removingDeptId === dept.id)">Удалить</span>
+                  <span v-else>Удаление...</span>
                 </button>
               </div>
-            </div>
+            </transition-group>
             <p v-else class="empty">Нет отделов с доступом</p>
             
             <div class="add-form">
@@ -56,19 +65,26 @@
                 type="number" 
                 placeholder="ID отдела"
                 :disabled="saving"
+                @keyup.enter="addDepartment"
+                class="form-input"
               />
               <input 
                 v-model="newDepartmentName" 
                 type="text" 
                 placeholder="Название отдела"
                 :disabled="saving"
+                @keyup.enter="addDepartment"
+                class="form-input"
               />
               <button 
                 @click="addDepartment"
                 :disabled="saving || !newDepartmentId || !newDepartmentName"
                 class="btn btn-primary"
+                :class="{ 'loading': saving }"
+                @keyup.enter="addDepartment"
               >
-                Добавить отдел
+                <span v-if="!saving">Добавить отдел</span>
+                <span v-else>Добавление...</span>
               </button>
             </div>
           </div>
@@ -76,7 +92,7 @@
           <!-- Пользователи с доступом -->
           <div class="users-section">
             <h2>Пользователи с доступом</h2>
-            <div v-if="store.enabledUsers.length > 0" class="list">
+            <transition-group name="list-item" tag="div" v-if="store.enabledUsers.length > 0" class="list">
               <div 
                 v-for="user in store.enabledUsers" 
                 :key="user.id"
@@ -87,11 +103,13 @@
                   @click="removeUser(user.id)"
                   :disabled="saving"
                   class="btn btn-danger"
+                  :class="{ 'loading': saving && removingUserId === user.id }"
                 >
-                  Удалить
+                  <span v-if="!(saving && removingUserId === user.id)">Удалить</span>
+                  <span v-else>Удаление...</span>
                 </button>
               </div>
-            </div>
+            </transition-group>
             <p v-else class="empty">Нет пользователей с доступом</p>
             
             <div class="add-form">
@@ -100,25 +118,34 @@
                 type="number" 
                 placeholder="ID пользователя"
                 :disabled="saving"
+                @keyup.enter="addUser"
+                class="form-input"
               />
               <input 
                 v-model="newUserName" 
                 type="text" 
                 placeholder="Имя пользователя"
                 :disabled="saving"
+                @keyup.enter="addUser"
+                class="form-input"
               />
               <input 
                 v-model="newUserEmail" 
                 type="email" 
                 placeholder="Email (опционально)"
                 :disabled="saving"
+                @keyup.enter="addUser"
+                class="form-input"
               />
               <button 
                 @click="addUser"
                 :disabled="saving || !newUserId || !newUserName"
                 class="btn btn-primary"
+                :class="{ 'loading': saving }"
+                @keyup.enter="addUser"
               >
-                Добавить пользователя
+                <span v-if="!saving">Добавить пользователя</span>
+                <span v-else>Добавление...</span>
               </button>
             </div>
           </div>
@@ -137,6 +164,10 @@ import { showSuccess, showError } from '@/utils/bitrix24';
 const router = useRouter();
 const store = useAccessControlStore();
 const saving = ref(false);
+const loading = ref(false);
+const toggleError = ref(null);
+const removingDeptId = ref(null);
+const removingUserId = ref(null);
 
 const goBack = () => {
   const params = new URLSearchParams(window.location.search);
@@ -159,8 +190,22 @@ const goBack = () => {
 
 const enabled = computed({
   get: () => store.isEnabled,
-  set: (value) => {
-    // Будет реализовано через API
+  set: async (value) => {
+    saving.value = true;
+    toggleError.value = null;
+    
+    try {
+      await store.toggleEnabled(value);
+      showSuccess(value ? 'Проверка прав доступа включена' : 'Проверка прав доступа выключена');
+    } catch (err) {
+      console.error('Ошибка переключения:', err);
+      toggleError.value = err.message || 'Ошибка переключения проверки';
+      showError(toggleError.value);
+      // Откатываем значение
+      await store.fetchConfig();
+    } finally {
+      saving.value = false;
+    }
   }
 });
 
@@ -171,17 +216,16 @@ const newUserName = ref('');
 const newUserEmail = ref('');
 
 onMounted(async () => {
+  loading.value = true;
   try {
     await store.fetchConfig();
   } catch (err) {
     console.error('Ошибка загрузки конфигурации:', err);
+    showError(err.message || 'Ошибка загрузки конфигурации');
+  } finally {
+    loading.value = false;
   }
 });
-
-async function toggleEnabled() {
-  // TODO: Реализовать через API
-  console.log('Toggle enabled:', enabled.value);
-}
 
 async function addDepartment() {
   if (!newDepartmentId.value || !newDepartmentName.value) return;
@@ -204,7 +248,13 @@ async function addDepartment() {
 }
 
 async function removeDepartment(id) {
+  if (!confirm('Вы уверены, что хотите удалить этот отдел из списка доступа?')) {
+    return;
+  }
+  
+  removingDeptId.value = id;
   saving.value = true;
+  
   try {
     await store.removeDepartment(id);
     showSuccess('Отдел успешно удален');
@@ -213,6 +263,7 @@ async function removeDepartment(id) {
     showError(err.message || 'Ошибка удаления отдела');
   } finally {
     saving.value = false;
+    removingDeptId.value = null;
   }
 }
 
@@ -239,7 +290,13 @@ async function addUser() {
 }
 
 async function removeUser(id) {
+  if (!confirm('Вы уверены, что хотите удалить этого пользователя из списка доступа?')) {
+    return;
+  }
+  
+  removingUserId.value = id;
   saving.value = true;
+  
   try {
     await store.removeUser(id);
     showSuccess('Пользователь успешно удален');
@@ -248,6 +305,7 @@ async function removeUser(id) {
     showError(err.message || 'Ошибка удаления пользователя');
   } finally {
     saving.value = false;
+    removingUserId.value = null;
   }
 }
 </script>
@@ -360,6 +418,97 @@ async function removeUser(id) {
   color: var(--text-secondary);
   font-style: italic;
   margin: 15px 0;
+}
+
+/* Анимации для списка */
+.list-item-enter-active,
+.list-item-leave-active {
+  transition: all 0.3s ease;
+}
+
+.list-item-enter-from {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+
+.list-item-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+/* Индикатор загрузки */
+.loading {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.saving-indicator {
+  color: var(--primary-color);
+  font-size: 0.9em;
+  margin-left: 10px;
+}
+
+/* Улучшенный toggle */
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.toggle-input {
+  display: none;
+}
+
+.toggle-slider {
+  position: relative;
+  width: 50px;
+  height: 24px;
+  background-color: #ccc;
+  border-radius: 24px;
+  transition: background-color 0.3s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: white;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s;
+}
+
+.toggle-input:checked + .toggle-slider {
+  background-color: var(--primary-color, #007bff);
+}
+
+.toggle-input:checked + .toggle-slider::before {
+  transform: translateX(26px);
+}
+
+.toggle-slider.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-message {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8d7da;
+  color: #721c24;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.form-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
 }
 </style>
 

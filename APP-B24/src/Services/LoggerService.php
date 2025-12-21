@@ -61,13 +61,20 @@ class LoggerService
      * @param string $result Результат проверки (granted/denied)
      * @param string $reason Причина результата
      */
-    public function logAccessCheck(int $userId, array $userDepartments, string $result, string $reason): void
+    public function logAccessCheck(int $userId, array $userDepartments, string $result, string $reason, array $additionalData = []): void
     {
         $logFile = $this->logsDir . 'access-check-' . date('Y-m-d') . '.log';
         $logEntry = date('Y-m-d H:i:s') . ' - ACCESS CHECK: user_id=' . $userId . 
             ', departments=' . json_encode($userDepartments, JSON_UNESCAPED_UNICODE) . 
             ', result=' . $result . 
-            ', reason=' . $reason . "\n";
+            ', reason=' . $reason;
+        
+        // Добавляем дополнительные данные (например, метрики производительности)
+        if (!empty($additionalData)) {
+            $logEntry .= ', additional=' . json_encode($additionalData, JSON_UNESCAPED_UNICODE);
+        }
+        
+        $logEntry .= "\n";
         @file_put_contents($logFile, $logEntry, FILE_APPEND);
     }
     
