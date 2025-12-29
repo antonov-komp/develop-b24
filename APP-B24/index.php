@@ -60,31 +60,131 @@ try {
     // 3. Проверка конфигурации внешнего доступа
     $config = $configService->getIndexPageConfig();
     $externalAccessEnabled = isset($config['external_access']) && $config['external_access'] === true;
+    $appEnabled = isset($config['enabled']) && $config['enabled'] === true;
+    $blockBitrix24Iframe = isset($config['block_bitrix24_iframe']) && $config['block_bitrix24_iframe'] === true;
     
     $logger->log('Index page config check', [
         'external_access_enabled' => $externalAccessEnabled,
-        'config_enabled' => $config['enabled'] ?? true,
+        'config_enabled' => $appEnabled,
+        'block_bitrix24_iframe' => $blockBitrix24Iframe,
         'route' => $route
     ], 'info');
     
-    // 4. Проверка авторизации Bitrix24 (если внешний доступ выключен)
+    // 3.1. Проверка, включено ли приложение
+    // Если приложение отключено, показываем страницу ошибки БЕЗ загрузки Vue.js
+    if (!$appEnabled) {
+        $message = $config['message'] ?? 'Интерфейс приложения временно недоступен. Пожалуйста, попробуйте позже.';
+        $lastUpdated = $config['last_updated'] ?? null;
+        
+        $logger->log('Index page disabled by config', [
+            'message' => $message,
+            'last_updated' => $lastUpdated
+        ], 'info');
+        
+        // Показываем страницу ошибки
+        $errorPagePath = __DIR__ . '/templates/config-error.php';
+        if (file_exists($errorPagePath)) {
+            // Передаём переменные напрямую в шаблон
+            // Шаблон использует $_GET, но мы можем установить их для совместимости
+            $originalGet = $_GET;
+            $_GET['message'] = $message;
+            if ($lastUpdated) {
+                $_GET['last_updated'] = $lastUpdated;
+            }
+            require_once($errorPagePath);
+            // Восстанавливаем оригинальные GET-параметры (на всякий случай)
+            $_GET = $originalGet;
+        } else {
+            // Если шаблон не найден, показываем простое сообщение
+            http_response_code(503);
+            echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Интерфейс недоступен</title></head><body>';
+            echo '<h1>Интерфейс недоступен</h1>';
+            echo '<p>' . htmlspecialchars($message) . '</p>';
+            if ($lastUpdated) {
+                echo '<p><small>Последнее обновление: ' . htmlspecialchars($lastUpdated) . '</small></p>';
+            }
+            echo '</body></html>';
+        }
+        exit;
+    }
+    
+    // 4. Проверка авторизации Bitrix24
     $authResult = false;
+    $hasUserToken = !empty($_REQUEST['AUTH_ID']) && !empty($_REQUEST['DOMAIN']);
+    
     if (!$externalAccessEnabled) {
+        // Внешний доступ выключен - требуется авторизация Bitrix24
+        // Проверяем наличие токена пользователя (AUTH_ID и DOMAIN) - признак запроса из Bitrix24 iframe
+        if (!$hasUserToken) {
+            // Нет токена пользователя - это прямой доступ, блокируем
+            $logger->logError('Index page blocked: external access disabled, no user token', [
+                'external_access_enabled' => false,
+                'has_auth_id' => !empty($_REQUEST['AUTH_ID']),
+                'has_domain' => !empty($_REQUEST['DOMAIN']),
+                'request_method' => $_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'
+            ]);
+            
+            // Редирект на страницу ошибки
+            $authService->redirectToFailure('direct_access');
+            exit;
+        }
+        
+        // Есть токен пользователя - проверяем авторизацию через Bitrix24
         $authResult = $authService->checkBitrix24Auth();
         if (!$authResult) {
             // checkBitrix24Auth() уже выполнил редирект на public/failure.php
             $logger->logError('Index page auth check failed', [
-                'external_access_enabled' => false
+                'external_access_enabled' => false,
+                'has_user_token' => true
             ]);
             exit;
         }
         $logger->log('Index page auth check passed', [
-            'external_access_enabled' => false
+            'external_access_enabled' => false,
+            'access_type' => 'bitrix24_iframe'
         ], 'info');
     } else {
-        $logger->log('Index page external access enabled', [
-            'skipping_auth_check' => true
-        ], 'info');
+        // Внешний доступ включен - разрешаем прямой доступ БЕЗ обязательной авторизации
+        // НО если включена блокировка Bitrix24 iframe и есть токен пользователя - блокируем доступ
+        if ($hasUserToken && $blockBitrix24Iframe) {
+            // Есть токен пользователя (запрос из Bitrix24 iframe) и включена блокировка - блокируем доступ
+            $logger->logError('Index page blocked: external access enabled, but Bitrix24 iframe blocked', [
+                'external_access_enabled' => true,
+                'block_bitrix24_iframe' => true,
+                'has_user_token' => true
+            ]);
+            
+            // Редирект на страницу ошибки
+            $authService->redirectToFailure('bitrix24_iframe_blocked');
+            exit;
+        }
+        
+        // Если есть токен пользователя и блокировка НЕ включена - проверяем авторизацию для использования данных пользователя
+        if ($hasUserToken && !$blockBitrix24Iframe) {
+            // Есть токен пользователя - проверяем авторизацию (для работы внутри Bitrix24 iframe)
+            $authResult = $authService->checkBitrix24Auth();
+            if ($authResult) {
+                $logger->log('Index page external access enabled, auth check passed (Bitrix24 iframe)', [
+                    'external_access_enabled' => true,
+                    'block_bitrix24_iframe' => false,
+                    'access_type' => 'bitrix24_iframe_with_external_access'
+                ], 'info');
+            } else {
+                // Авторизация не прошла, но external_access включен - разрешаем доступ без данных пользователя
+                $logger->log('Index page external access enabled, auth check failed but access allowed', [
+                    'external_access_enabled' => true,
+                    'has_user_token' => true,
+                    'access_type' => 'external_access_fallback'
+                ], 'warning');
+            }
+        } else {
+            // Нет токена пользователя - это прямой доступ, разрешаем без авторизации
+            $logger->log('Index page external access enabled, direct access allowed', [
+                'external_access_enabled' => true,
+                'block_bitrix24_iframe' => $blockBitrix24Iframe,
+                'access_type' => 'direct_access'
+            ], 'info');
+        }
     }
     
     // 5. Получение данных пользователя (только для главной страницы)
@@ -132,6 +232,8 @@ try {
  */
 function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserService $userService, LoggerService $logger): array
 {
+    global $configService;
+    
     $authInfo = [
         'is_authenticated' => false,
         'user' => null,
@@ -144,6 +246,22 @@ function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserServic
     if ($authResult || $externalAccessEnabled) {
         $authId = $_REQUEST['AUTH_ID'] ?? $_GET['AUTH_ID'] ?? $_GET['APP_SID'] ?? null;
         $domain = $_REQUEST['DOMAIN'] ?? $_GET['DOMAIN'] ?? null;
+        
+        // Если внешний доступ включен и нет токена в запросе, используем токен из settings.json
+        if ($externalAccessEnabled && (!$authId || !$domain)) {
+            $settings = $configService->getSettings();
+            $authId = $settings['access_token'] ?? null;
+            $domain = $settings['domain'] ?? null;
+            
+            if ($authId && $domain) {
+                $logger->log('Using global token from settings.json for external access', [
+                    'token_length' => strlen($authId),
+                    'domain' => $domain
+                ], 'info');
+            } else {
+                $logger->log('External access enabled, but no token in settings.json', [], 'warning');
+            }
+        }
         
         if ($authId && $domain) {
             $authInfo['is_authenticated'] = true;
@@ -168,7 +286,8 @@ function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserServic
                     
                     $logger->log('User data retrieved in index.php', [
                         'user_id' => $authInfo['user']['id'],
-                        'is_admin' => $authInfo['is_admin']
+                        'is_admin' => $authInfo['is_admin'],
+                        'using_global_token' => $externalAccessEnabled && empty($_REQUEST['AUTH_ID'])
                     ], 'info');
                 }
             } catch (\Exception $e) {
@@ -179,11 +298,11 @@ function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserServic
                 ]);
             }
         } elseif ($externalAccessEnabled) {
-            // Внешний доступ активен, но нет авторизации Bitrix24
+            // Внешний доступ активен, но нет токена ни в запросе, ни в settings.json
             $authInfo['is_authenticated'] = false;
             $authInfo['external_access'] = true;
             
-            $logger->log('External access enabled without Bitrix24 auth', [], 'info');
+            $logger->log('External access enabled without Bitrix24 auth and without global token', [], 'info');
         }
     }
     

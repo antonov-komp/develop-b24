@@ -54,15 +54,36 @@ class VueAppService
         }
         
         // Получение параметров авторизации
-        $authId = $_POST['AUTH_ID'] ?? $_GET['AUTH_ID'] ?? $_GET['APP_SID'] ?? null;
+        // Сначала проверяем appData (может содержать токен из settings.json при external_access)
+        $authId = null;
+        $domain = null;
+        $externalAccessEnabled = false;
+        if ($appData && isset($appData['authInfo'])) {
+            $authInfo = $appData['authInfo'];
+            if (!empty($authInfo['auth_id']) && !empty($authInfo['domain'])) {
+                $authId = $authInfo['auth_id'];
+                $domain = $authInfo['domain'];
+            }
+        }
+        
+        // Проверяем external_access
+        if ($appData && isset($appData['externalAccessEnabled'])) {
+            $externalAccessEnabled = (bool)$appData['externalAccessEnabled'];
+        }
+        
+        // Если токена нет в appData, используем токен из запроса
+        if (!$authId || !$domain) {
+            $authId = $_POST['AUTH_ID'] ?? $_GET['AUTH_ID'] ?? $_GET['APP_SID'] ?? null;
+            $domain = $_POST['DOMAIN'] ?? $_GET['DOMAIN'] ?? null;
+        }
+        
         $refreshId = $_POST['REFRESH_ID'] ?? $_GET['REFRESH_ID'] ?? null;
         $authExpires = isset($_POST['AUTH_EXPIRES']) 
             ? (int)$_POST['AUTH_EXPIRES'] 
             : (isset($_GET['AUTH_EXPIRES']) ? (int)$_GET['AUTH_EXPIRES'] : null);
-        $domain = $_POST['DOMAIN'] ?? $_GET['DOMAIN'] ?? null;
         
         // Построение скриптов
-        $authScript = $this->buildAuthScript($authId, $domain, $refreshId, $authExpires);
+        $authScript = $this->buildAuthScript($authId, $domain, $refreshId, $authExpires, $externalAccessEnabled);
         $appDataScript = $this->buildAppDataScript($appData);
         $navigationScript = $this->buildNavigationScript($route);
         
@@ -128,10 +149,10 @@ class VueAppService
         ?string $authId, 
         ?string $domain, 
         ?string $refreshId = null, 
-        ?int $authExpires = null
+        ?int $authExpires = null,
+        bool $externalAccessEnabled = false
     ): string {
-        $script = '<script src="//api.bitrix24.com/api/v1/"></script>' . "\n";
-        $script .= '<script>' . "\n";
+        $script = '<script>' . "\n";
         
         if ($authId && $domain) {
             $script .= '        (function() {' . "\n";
@@ -146,61 +167,72 @@ class VueAppService
             $script .= '        })();' . "\n";
         }
         
-        $script .= '        // Ожидание загрузки Bitrix24 SDK' . "\n";
-        $script .= '        (function() {' . "\n";
-        $script .= '            let attempts = 0;' . "\n";
-        $script .= '            const maxAttempts = 50; // 5 секунд максимум' . "\n";
-        $script .= '            function tryInitBitrix24() {' . "\n";
-        $script .= '                // Проверяем наличие BX24 и что он не null' . "\n";
-        $script .= '                if (typeof BX24 !== "undefined" && BX24 !== null && typeof BX24.init === "function") {' . "\n";
-        $script .= '                    try {' . "\n";
-        $script .= '                        // Проверяем BX24 перед вызовом' . "\n";
-        $script .= '                        if (typeof BX24 === "undefined" || BX24 === null || typeof BX24.init !== "function") {' . "\n";
-        $script .= '                            console.warn("Bitrix24 SDK is not available (BX24 is null or undefined)");' . "\n";
-        $script .= '                            return false;' . "\n";
-        $script .= '                        }' . "\n";
-        $script .= '                        ' . "\n";
-        $script .= '                        BX24.init(function() {' . "\n";
-        $script .= '                            if (!sessionStorage.getItem("bitrix24_auth")) {' . "\n";
-        $script .= '                                // Проверяем BX24 перед вызовом getAuth' . "\n";
-        $script .= '                                if (typeof BX24 !== "undefined" && BX24 !== null && typeof BX24.getAuth === "function") {' . "\n";
-        $script .= '                                    BX24.getAuth(function(auth) {' . "\n";
-        $script .= '                                        if (auth && auth.auth_token) {' . "\n";
-        $script .= '                                            sessionStorage.setItem("bitrix24_auth", JSON.stringify(auth));' . "\n";
-        $script .= '                                            console.log("Bitrix24 auth token retrieved via BX24.getAuth()");' . "\n";
-        $script .= '                                        }' . "\n";
-        $script .= '                                    });' . "\n";
-        $script .= '                                } else {' . "\n";
-        $script .= '                                    console.warn("Bitrix24.getAuth() is not available");' . "\n";
-        $script .= '                                }' . "\n";
-        $script .= '                            }' . "\n";
-        $script .= '                        });' . "\n";
-        $script .= '                        console.log("Bitrix24 SDK initialized successfully");' . "\n";
-        $script .= '                    } catch (e) {' . "\n";
-        $script .= '                        console.error("Error initializing Bitrix24 SDK:", e);' . "\n";
-        $script .= '                    }' . "\n";
-        $script .= '                    return true;' . "\n";
-        $script .= '                }' . "\n";
-        $script .= '                return false;' . "\n";
-        $script .= '            }' . "\n";
-        $script .= '            ' . "\n";
-        $script .= '            // Пытаемся инициализировать сразу' . "\n";
-        $script .= '            if (tryInitBitrix24()) {' . "\n";
-        $script .= '                return;' . "\n";
-        $script .= '            }' . "\n";
-        $script .= '            ' . "\n";
-        $script .= '            // Если не получилось, ждём загрузки SDK' . "\n";
-        $script .= '            const interval = setInterval(function() {' . "\n";
-        $script .= '                attempts++;' . "\n";
-        $script .= '                if (tryInitBitrix24() || attempts >= maxAttempts) {' . "\n";
-        $script .= '                    clearInterval(interval);' . "\n";
-        $script .= '                    if (attempts >= maxAttempts) {' . "\n";
-        $script .= '                        console.warn("Bitrix24 SDK not loaded after " + maxAttempts + " attempts. App may work in limited mode.");' . "\n";
-        $script .= '                    }' . "\n";
-        $script .= '                }' . "\n";
-        $script .= '            }, 100);' . "\n";
-        $script .= '        })();' . "\n";
         $script .= '    </script>' . "\n";
+        
+        // Загружаем SDK только если не external_access или токен не передан
+        // SDK работает только внутри iframe Bitrix24
+        if (!$externalAccessEnabled || !$authId) {
+            $script .= '    <script src="//api.bitrix24.com/api/v1/"></script>' . "\n";
+            $script .= '    <script>' . "\n";
+            $script .= '        // Ожидание загрузки Bitrix24 SDK' . "\n";
+            $script .= '        (function() {' . "\n";
+            $script .= '            let attempts = 0;' . "\n";
+            $script .= '            const maxAttempts = 50; // 5 секунд максимум' . "\n";
+            $script .= '            function tryInitBitrix24() {' . "\n";
+            $script .= '                // Проверяем наличие BX24 и что он не null' . "\n";
+            $script .= '                if (typeof BX24 !== "undefined" && BX24 !== null && typeof BX24.init === "function") {' . "\n";
+            $script .= '                    try {' . "\n";
+            $script .= '                        // Проверяем BX24 перед вызовом' . "\n";
+            $script .= '                        if (typeof BX24 === "undefined" || BX24 === null || typeof BX24.init !== "function") {' . "\n";
+            $script .= '                            console.warn("Bitrix24 SDK is not available (BX24 is null or undefined)");' . "\n";
+            $script .= '                            return false;' . "\n";
+            $script .= '                        }' . "\n";
+            $script .= '                        ' . "\n";
+            $script .= '                        BX24.init(function() {' . "\n";
+            $script .= '                            if (!sessionStorage.getItem("bitrix24_auth")) {' . "\n";
+            $script .= '                                // Проверяем BX24 перед вызовом getAuth' . "\n";
+            $script .= '                                if (typeof BX24 !== "undefined" && BX24 !== null && typeof BX24.getAuth === "function") {' . "\n";
+            $script .= '                                    BX24.getAuth(function(auth) {' . "\n";
+            $script .= '                                        if (auth && auth.auth_token) {' . "\n";
+            $script .= '                                            sessionStorage.setItem("bitrix24_auth", JSON.stringify(auth));' . "\n";
+            $script .= '                                            console.log("Bitrix24 auth token retrieved via BX24.getAuth()");' . "\n";
+            $script .= '                                        }' . "\n";
+            $script .= '                                    });' . "\n";
+            $script .= '                                } else {' . "\n";
+            $script .= '                                    console.warn("Bitrix24.getAuth() is not available");' . "\n";
+            $script .= '                                }' . "\n";
+            $script .= '                            }' . "\n";
+            $script .= '                        });' . "\n";
+            $script .= '                        console.log("Bitrix24 SDK initialized successfully");' . "\n";
+            $script .= '                    } catch (e) {' . "\n";
+            $script .= '                        console.error("Error initializing Bitrix24 SDK:", e);' . "\n";
+            $script .= '                    }' . "\n";
+            $script .= '                    return true;' . "\n";
+            $script .= '                }' . "\n";
+            $script .= '                return false;' . "\n";
+            $script .= '            }' . "\n";
+            $script .= '            ' . "\n";
+            $script .= '            // Пытаемся инициализировать сразу' . "\n";
+            $script .= '            if (tryInitBitrix24()) {' . "\n";
+            $script .= '                return;' . "\n";
+            $script .= '            }' . "\n";
+            $script .= '            ' . "\n";
+            $script .= '            // Если не получилось, ждём загрузки SDK' . "\n";
+            $script .= '            const interval = setInterval(function() {' . "\n";
+            $script .= '                attempts++;' . "\n";
+            $script .= '                if (tryInitBitrix24() || attempts >= maxAttempts) {' . "\n";
+            $script .= '                    clearInterval(interval);' . "\n";
+            $script .= '                    if (attempts >= maxAttempts) {' . "\n";
+            $script .= '                        console.warn("Bitrix24 SDK not loaded after " + maxAttempts + " attempts. App may work in limited mode.");' . "\n";
+            $script .= '                    }' . "\n";
+            $script .= '                }' . "\n";
+            $script .= '            }, 100);' . "\n";
+            $script .= '        })();' . "\n";
+            $script .= '    </script>' . "\n";
+        } else {
+            // SDK не загружается: external_access=true и токен уже передан из PHP
+            // SDK работает только внутри iframe Bitrix24
+        }
         
         return $script;
     }

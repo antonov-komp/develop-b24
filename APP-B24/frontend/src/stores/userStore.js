@@ -65,11 +65,31 @@ export const useUserStore = defineStore('user', {
       try {
         // Получаем параметры из URL
         const params = new URLSearchParams(window.location.search);
-        const domain = params.get('DOMAIN');
+        let domain = params.get('DOMAIN');
         
         // Пытаемся получить правильный AUTH_ID
         // APP_SID не работает для API вызовов, нужен auth_token
         let authId = params.get('AUTH_ID');
+        
+        // Если токена нет в URL, проверяем данные из PHP (app_data)
+        if (!authId || !domain) {
+          try {
+            const appDataStr = sessionStorage.getItem('app_data');
+            if (appDataStr) {
+              const appData = JSON.parse(appDataStr);
+              if (appData.authInfo && appData.authInfo.auth_id && appData.authInfo.domain) {
+                authId = appData.authInfo.auth_id;
+                domain = appData.authInfo.domain;
+                console.log('UserStore: Using token from app_data (PHP)', {
+                  token_length: authId ? authId.length : 0,
+                  domain: domain
+                });
+              }
+            }
+          } catch (e) {
+            console.warn('UserStore: Failed to parse app_data', e);
+          }
+        }
         
         // Проверка: если внешний доступ включен и нет токена, не делаем запрос
         if (this.externalAccessEnabled && !authId && !domain) {

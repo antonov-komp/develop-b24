@@ -43,6 +43,7 @@ class ConfigService
         $defaultConfig = [
             'enabled' => true,
             'external_access' => false,
+            'block_bitrix24_iframe' => false,
             'message' => null,
             'last_updated' => null
         ];
@@ -105,9 +106,15 @@ class ConfigService
             ? (bool)$indexPageConfig['external_access'] 
             : false; // По умолчанию выключен (требуется авторизация)
         
+        // Получаем block_bitrix24_iframe из конфига
+        $blockBitrix24Iframe = isset($indexPageConfig['block_bitrix24_iframe']) 
+            ? (bool)$indexPageConfig['block_bitrix24_iframe'] 
+            : false; // По умолчанию разрешён доступ из Bitrix24 iframe
+        
         return [
             'enabled' => $enabled,
             'external_access' => $externalAccess,
+            'block_bitrix24_iframe' => $blockBitrix24Iframe,
             'message' => $message,
             'last_updated' => $lastUpdated
         ];

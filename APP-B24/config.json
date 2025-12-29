@@ -2,6 +2,7 @@
   "index_page": {
     "enabled": true,
     "external_access": true,
+    "block_bitrix24_iframe": true,
     "message": "Интерфейс приложения временно недоступен. Пожалуйста, попробуйте позже.",
     "last_updated": "2025-12-29 09:15:00",
     "updated_by": "system"
