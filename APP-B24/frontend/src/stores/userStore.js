@@ -72,6 +72,7 @@ export const useUserStore = defineStore('user', {
         let authId = params.get('AUTH_ID');
         
         // Если токена нет в URL, проверяем данные из PHP (app_data)
+        // Это может быть токен пользователя (режим 1, 2) или токен админа (режим 3)
         if (!authId || !domain) {
           try {
             const appDataStr = sessionStorage.getItem('app_data');
@@ -82,8 +83,20 @@ export const useUserStore = defineStore('user', {
                 domain = appData.authInfo.domain;
                 console.log('UserStore: Using token from app_data (PHP)', {
                   token_length: authId ? authId.length : 0,
-                  domain: domain
+                  domain: domain,
+                  is_authenticated: appData.authInfo.is_authenticated,
+                  has_user: !!appData.authInfo.user
                 });
+                
+                // Если данные пользователя уже есть в app_data (режим 3: токен админа), используем их
+                if (appData.authInfo.is_authenticated && appData.authInfo.user) {
+                  console.log('UserStore: User data already available in app_data, using it');
+                  this.isAuthenticated = true;
+                  this.currentUser = appData.authInfo.user;
+                  this.isAdmin = appData.authInfo.is_admin || false;
+                  this.loading = false;
+                  return; // Данные уже есть, не делаем запрос
+                }
               }
             }
           } catch (e) {
@@ -91,17 +104,13 @@ export const useUserStore = defineStore('user', {
           }
         }
         
-        // Проверка: если внешний доступ включен и нет токена, не делаем запрос
+        // Проверка: если внешний доступ включен и нет токена ни в URL, ни в app_data, не делаем запрос
         if (this.externalAccessEnabled && !authId && !domain) {
-          // Проверяем sessionStorage на наличие токена
-          const storedAuth = sessionStorage.getItem('bitrix24_auth');
-          if (!storedAuth) {
-            console.log('UserStore: External access enabled, but no auth token. Skipping API request.');
-            this.loading = false;
-            this.isAuthenticated = false;
-            this.currentUser = null;
-            return; // Не делаем запрос, просто выходим
-          }
+          console.log('UserStore: External access enabled, but no token available. Skipping API request.');
+          this.loading = false;
+          this.isAuthenticated = false;
+          this.currentUser = null;
+          return; // Не делаем запрос, просто выходим
         }
         
         // Логируем доступность BX24 API

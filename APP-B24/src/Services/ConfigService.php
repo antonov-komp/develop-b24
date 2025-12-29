@@ -40,10 +40,12 @@ class ConfigService
     public function getIndexPageConfig(): array
     {
         $configFile = $this->configDir . 'config.json';
+        // Значения по умолчанию (используются только если config.json не найден или повреждён)
+        // Безопасный режим по умолчанию: только Bitrix24 (требуется авторизация)
         $defaultConfig = [
             'enabled' => true,
-            'external_access' => false,
-            'block_bitrix24_iframe' => false,
+            'external_access' => false,  // По умолчанию только через Bitrix24
+            'block_bitrix24_iframe' => false,  // По умолчанию разрешён доступ из Bitrix24
             'message' => null,
             'last_updated' => null
         ];

@@ -98,6 +98,20 @@ const MAX_REDIRECT_ATTEMPTS = 3;
 router.beforeEach((to, from, next) => {
   console.log('Router beforeEach:', { to: to.path, from: from.path, fullPath: to.fullPath, query: to.query });
   
+  // Проверяем, включен ли внешний доступ (проверяем ДО всех остальных проверок)
+  let externalAccessEnabled = false;
+  try {
+    const appDataStr = sessionStorage.getItem('app_data');
+    if (appDataStr) {
+      const appData = JSON.parse(appDataStr);
+      externalAccessEnabled = appData.externalAccessEnabled || false;
+    }
+  } catch (e) {
+    // Игнорируем ошибки парсинга
+  }
+  
+  console.log('Router: External access enabled:', externalAccessEnabled);
+  
   // Если маршрут содержит index.php, редиректим на главную
   if (to.path === '/index.php' || to.path.includes('index.php')) {
     console.log('Router: Redirecting from index.php to /');
@@ -132,18 +146,6 @@ router.beforeEach((to, from, next) => {
   
   // Проверка авторизации
   if (to.meta.requiresAuth) {
-    // Проверяем, включен ли внешний доступ
-    let externalAccessEnabled = false;
-    try {
-      const appDataStr = sessionStorage.getItem('app_data');
-      if (appDataStr) {
-        const appData = JSON.parse(appDataStr);
-        externalAccessEnabled = appData.externalAccessEnabled || false;
-      }
-    } catch (e) {
-      // Игнорируем ошибки парсинга
-    }
-    
     // Если внешний доступ включен, пропускаем проверку авторизации
     if (externalAccessEnabled) {
       console.log('Router: External access enabled, skipping auth check');

@@ -67,7 +67,10 @@ try {
         'external_access_enabled' => $externalAccessEnabled,
         'config_enabled' => $appEnabled,
         'block_bitrix24_iframe' => $blockBitrix24Iframe,
-        'route' => $route
+        'route' => $route,
+        'has_auth_id' => !empty($_REQUEST['AUTH_ID']),
+        'has_domain' => !empty($_REQUEST['DOMAIN']),
+        'request_uri' => $_SERVER['REQUEST_URI'] ?? 'unknown'
     ], 'info');
     
     // 3.1. Проверка, включено ли приложение
@@ -190,7 +193,7 @@ try {
     // 5. Получение данных пользователя (только для главной страницы)
     $vueAppData = null;
     if ($route === '/') {
-        $authInfo = buildAuthInfo($authResult, $externalAccessEnabled, $userService, $logger);
+        $authInfo = buildAuthInfo($authResult, $externalAccessEnabled, $blockBitrix24Iframe, $userService, $logger);
         
         // Построение данных для Vue.js
         $vueAppData = [
@@ -224,13 +227,19 @@ try {
 /**
  * Построение информации об авторизации
  * 
+ * Режимы работы:
+ * 1. Только Bitrix24: external_access=false - использует токен пользователя из запроса
+ * 2. Везде: external_access=true, block_bitrix24_iframe=false - работает везде, использует токен пользователя если есть
+ * 3. Только внешний с токеном админа: external_access=true, block_bitrix24_iframe=true - использует токен админа из settings.json
+ * 
  * @param bool $authResult Результат проверки авторизации
  * @param bool $externalAccessEnabled Включен ли внешний доступ
+ * @param bool $blockBitrix24Iframe Заблокирован ли доступ из Bitrix24 iframe
  * @param UserService $userService Сервис работы с пользователями
  * @param LoggerService $logger Сервис логирования
  * @return array Информация об авторизации
  */
-function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserService $userService, LoggerService $logger): array
+function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, bool $blockBitrix24Iframe, UserService $userService, LoggerService $logger): array
 {
     global $configService;
     
@@ -247,23 +256,87 @@ function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserServic
         $authId = $_REQUEST['AUTH_ID'] ?? $_GET['AUTH_ID'] ?? $_GET['APP_SID'] ?? null;
         $domain = $_REQUEST['DOMAIN'] ?? $_GET['DOMAIN'] ?? null;
         
-        // Если внешний доступ включен и нет токена в запросе, используем токен из settings.json
-        if ($externalAccessEnabled && (!$authId || !$domain)) {
+        // Проверяем, есть ли токен пользователя в запросе (не токен установщика)
+        $hasUserTokenInRequest = !empty($_REQUEST['AUTH_ID']) && !empty($_REQUEST['DOMAIN']);
+        
+        // Режим 3: Только внешний с токеном админа
+        // Если блокирован Bitrix24 iframe и нет токена пользователя в запросе - используем токен админа из settings.json
+        if ($externalAccessEnabled && $blockBitrix24Iframe && !$hasUserTokenInRequest) {
             $settings = $configService->getSettings();
-            $authId = $settings['access_token'] ?? null;
-            $domain = $settings['domain'] ?? null;
+            $adminToken = $settings['access_token'] ?? null;
+            $adminDomain = $settings['domain'] ?? null;
             
-            if ($authId && $domain) {
-                $logger->log('Using global token from settings.json for external access', [
-                    'token_length' => strlen($authId),
-                    'domain' => $domain
+            if ($adminToken && $adminDomain) {
+                $authId = $adminToken;
+                $domain = $adminDomain;
+                
+                $logger->log('Using admin token from settings.json for external-only mode', [
+                    'token_length' => strlen($adminToken),
+                    'domain' => $adminDomain
                 ], 'info');
+                
+                // Получаем данные администратора
+                try {
+                    $user = $userService->getCurrentUser($authId, $domain);
+                    if ($user) {
+                        $authInfo['is_authenticated'] = true;
+                        $authInfo['auth_id'] = $authId;
+                        $authInfo['domain'] = $domain;
+                        $authInfo['user'] = [
+                            'id' => $user['ID'] ?? null,
+                            'name' => $user['NAME'] ?? '',
+                            'last_name' => $user['LAST_NAME'] ?? '',
+                            'full_name' => $userService->getUserFullName($user),
+                            'email' => $user['EMAIL'] ?? '',
+                            'admin' => $user['ADMIN'] ?? 'N'
+                        ];
+                        $authInfo['is_admin'] = $userService->isAdmin($user, $authId, $domain);
+                        
+                        $logger->log('Admin user data retrieved using token from settings.json', [
+                            'user_id' => $authInfo['user']['id'],
+                            'is_admin' => $authInfo['is_admin']
+                        ], 'info');
+                    } else {
+                        // Токен валиден, но данные пользователя не получены
+                        $logger->log('Admin token valid but user data not retrieved - continuing without user data', [
+                            'token_length' => strlen($adminToken),
+                            'domain' => $adminDomain
+                        ], 'warning');
+                        $authInfo['is_authenticated'] = false;
+                        $authInfo['external_access'] = true;
+                        $authInfo['auth_id'] = $adminToken;
+                        $authInfo['domain'] = $adminDomain;
+                    }
+                } catch (\Exception $e) {
+                    $logger->logError('Failed to get admin user info using token from settings.json', [
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                    // В режиме только внешнего доступа продолжаем без данных пользователя
+                    // Но всё равно разрешаем доступ
+                    $authInfo['is_authenticated'] = false;
+                    $authInfo['external_access'] = true;
+                    $authInfo['auth_id'] = $adminToken; // Сохраняем токен для возможного использования
+                    $authInfo['domain'] = $adminDomain;
+                }
             } else {
-                $logger->log('External access enabled, but no token in settings.json', [], 'warning');
+                // Нет токена админа в settings.json - работаем без авторизации
+                $authInfo['is_authenticated'] = false;
+                $authInfo['external_access'] = true;
+                $logger->log('External-only mode enabled, but no admin token in settings.json - working without auth', [], 'warning');
             }
         }
-        
-        if ($authId && $domain) {
+        // Если режим 3 не сработал, но external_access включен и block_bitrix24_iframe включен
+        // Это fallback для случая, когда что-то пошло не так
+        elseif ($externalAccessEnabled && $blockBitrix24Iframe) {
+            // Режим 3, но что-то пошло не так - работаем без авторизации
+            $authInfo['is_authenticated'] = false;
+            $authInfo['external_access'] = true;
+            $logger->log('External-only mode fallback: working without authentication', [], 'info');
+        }
+        // Режим 2: Везде - если есть токен пользователя, используем его
+        elseif ($hasUserTokenInRequest && $authId && $domain) {
+            // Есть токен пользователя в запросе - используем его
             $authInfo['is_authenticated'] = true;
             $authInfo['auth_id'] = $authId;
             $authInfo['domain'] = $domain;
@@ -280,14 +353,12 @@ function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserServic
                         'email' => $user['EMAIL'] ?? '',
                         'admin' => $user['ADMIN'] ?? 'N'
                     ];
-                    
-                    // Проверка прав администратора
                     $authInfo['is_admin'] = $userService->isAdmin($user, $authId, $domain);
                     
                     $logger->log('User data retrieved in index.php', [
                         'user_id' => $authInfo['user']['id'],
                         'is_admin' => $authInfo['is_admin'],
-                        'using_global_token' => $externalAccessEnabled && empty($_REQUEST['AUTH_ID'])
+                        'using_user_token' => true
                     ], 'info');
                 }
             } catch (\Exception $e) {
@@ -297,12 +368,42 @@ function buildAuthInfo(bool $authResult, bool $externalAccessEnabled, UserServic
                     'domain' => $domain
                 ]);
             }
-        } elseif ($externalAccessEnabled) {
-            // Внешний доступ активен, но нет токена ни в запросе, ни в settings.json
+        }
+        // Режим 2: Везде - если нет токена пользователя, работаем без авторизации
+        elseif ($externalAccessEnabled && !$blockBitrix24Iframe) {
+            // Внешний доступ включен, но Bitrix24 iframe не заблокирован - работаем без авторизации
             $authInfo['is_authenticated'] = false;
             $authInfo['external_access'] = true;
             
-            $logger->log('External access enabled without Bitrix24 auth and without global token', [], 'info');
+            $logger->log('External access enabled, working without authentication', [], 'info');
+        }
+        // Если авторизация прошла (режим 1: Только Bitrix24)
+        elseif ($authResult) {
+            // Авторизация прошла - используем токен из запроса
+            if ($authId && $domain) {
+                $authInfo['is_authenticated'] = true;
+                $authInfo['auth_id'] = $authId;
+                $authInfo['domain'] = $domain;
+                
+                try {
+                    $user = $userService->getCurrentUser($authId, $domain);
+                    if ($user) {
+                        $authInfo['user'] = [
+                            'id' => $user['ID'] ?? null,
+                            'name' => $user['NAME'] ?? '',
+                            'last_name' => $user['LAST_NAME'] ?? '',
+                            'full_name' => $userService->getUserFullName($user),
+                            'email' => $user['EMAIL'] ?? '',
+                            'admin' => $user['ADMIN'] ?? 'N'
+                        ];
+                        $authInfo['is_admin'] = $userService->isAdmin($user, $authId, $domain);
+                    }
+                } catch (\Exception $e) {
+                    $logger->logError('Failed to get user info in index.php', [
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
         }
     }
     
