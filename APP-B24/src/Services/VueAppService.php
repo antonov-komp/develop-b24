@@ -66,6 +66,11 @@ class VueAppService
         $appDataScript = $this->buildAppDataScript($appData);
         $navigationScript = $this->buildNavigationScript($route);
         
+        // Добавление base href для правильной работы ES модулей
+        if (strpos($html, '<base') === false) {
+            $html = str_replace('<head>', '<head>' . "\n" . '    <base href="/APP-B24/">', $html);
+        }
+        
         // Вставка скриптов в HTML
         $html = str_replace('</head>', $authScript . $appDataScript . '</head>', $html);
         if ($navigationScript) {
@@ -78,6 +83,11 @@ class VueAppService
             'has_data' => $appData !== null,
             'has_auth' => !empty($authId) && !empty($domain)
         ], 'info');
+        
+        // Установка заголовков перед выводом
+        if (!headers_sent()) {
+            header('Content-Type: text/html; charset=UTF-8');
+        }
         
         // Вывод HTML
         echo $html;

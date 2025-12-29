@@ -19,9 +19,32 @@
     <script src="//api.bitrix24.com/api/v1/"></script>
     <?php if (isset($result['install']) && $result['install'] === true): ?>
     <script>
-        BX24.init(function(){
-            BX24.installFinish();
-        });
+        // Инициализация Bitrix24 API и завершение установки
+        if (typeof BX24 !== 'undefined') {
+            BX24.init(function(){
+                // Завершаем установку
+                BX24.installFinish();
+                
+                // После завершения установки закрываем окно или редиректим
+                setTimeout(function(){
+                    // Если приложение открыто в iframe - закрываем окно установки
+                    if (window.parent !== window) {
+                        try {
+                            window.parent.postMessage({type: 'app_installed'}, '*');
+                        } catch(e) {
+                            console.log('Cannot send message to parent');
+                        }
+                    }
+                }, 1000);
+            });
+        } else {
+            // Если BX24 API не загружен - показываем сообщение
+            console.error('Bitrix24 API не загружен');
+            document.querySelector('.install-container').innerHTML = 
+                '<div class="install-icon install-success">✓</div>' +
+                '<h1>Установка завершена</h1>' +
+                '<p class="message">Приложение успешно установлено. Закройте это окно и откройте приложение заново.</p>';
+        }
     </script>
     <?php endif; ?>
     <style>

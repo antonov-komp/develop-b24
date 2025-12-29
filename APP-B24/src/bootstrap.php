@@ -39,20 +39,35 @@ $configService = new App\Services\ConfigService($logger);
 $bitrix24Client = new App\Clients\Bitrix24SdkClient($logger);
 
 // Инициализация с токеном установщика
-try {
-    $bitrix24Client->initializeWithInstallerToken();
-    $logger->log('SDK client initialized with installer token', [], 'info');
-} catch (\Exception $e) {
-    $logger->logError('Failed to initialize SDK client', [
-        'exception' => $e->getMessage(),
-        'trace' => $e->getTraceAsString()
-    ]);
-    // В development режиме можно показать ошибку
-    if (getenv('APP_ENV') === 'development' || defined('APP_DEBUG') && APP_DEBUG) {
-        // В development можно выбросить исключение для отладки
-        // throw $e;
+// Пропускаем инициализацию во время установки (install.php), так как settings.json ещё не создан
+$isInstallPage = basename($_SERVER['PHP_SELF'] ?? '') === 'install.php';
+$isInstallEvent = isset($_REQUEST['event']) && $_REQUEST['event'] == 'ONAPPINSTALL';
+$isPlacementEvent = isset($_REQUEST['PLACEMENT']) && $_REQUEST['PLACEMENT'] == 'DEFAULT';
+
+// Инициализируем только если не происходит установка
+if (!$isInstallPage || (!$isInstallEvent && !$isPlacementEvent)) {
+    try {
+        $bitrix24Client->initializeWithInstallerToken();
+        $logger->log('SDK client initialized with installer token', [], 'info');
+    } catch (\Exception $e) {
+        $logger->logError('Failed to initialize SDK client', [
+            'exception' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        // В development режиме можно показать ошибку
+        if (getenv('APP_ENV') === 'development' || defined('APP_DEBUG') && APP_DEBUG) {
+            // В development можно выбросить исключение для отладки
+            // throw $e;
+        }
+        // В production продолжаем работу (может быть установка не завершена)
     }
-    // В production продолжаем работу (может быть установка не завершена)
+} else {
+    // Во время установки не инициализируем SDK
+    $logger->log('Skipping SDK initialization during installation', [
+        'is_install_page' => $isInstallPage,
+        'is_install_event' => $isInstallEvent,
+        'is_placement_event' => $isPlacementEvent
+    ], 'info');
 }
 
 // Инициализация сервисов с зависимостями

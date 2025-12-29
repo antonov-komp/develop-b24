@@ -42,6 +42,7 @@ class ConfigService
         $configFile = $this->configDir . 'config.json';
         $defaultConfig = [
             'enabled' => true,
+            'external_access' => false,
             'message' => null,
             'last_updated' => null
         ];
@@ -99,8 +100,14 @@ class ConfigService
         );
         $this->logger->logConfigCheck($logMessage, $context);
         
+        // Получаем external_access из конфига
+        $externalAccess = isset($indexPageConfig['external_access']) 
+            ? (bool)$indexPageConfig['external_access'] 
+            : false; // По умолчанию выключен (требуется авторизация)
+        
         return [
             'enabled' => $enabled,
+            'external_access' => $externalAccess,
             'message' => $message,
             'last_updated' => $lastUpdated
         ];

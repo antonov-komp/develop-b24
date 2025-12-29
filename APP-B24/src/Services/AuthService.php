@@ -138,6 +138,26 @@ class AuthService
                     goto check_user_access;
                 }
                 
+                // Ошибка WRONG_CLIENT - некритична, если есть токен пользователя
+                // Возникает при использовании application_token как client_id
+                if ($testResult['error'] === 'WRONG_CLIENT') {
+                    // Если есть токен пользователя и запрос из Bitrix24 - разрешаем доступ
+                    // WRONG_CLIENT не критична для работы пользователя через iframe
+                    if ($hasUserToken && $isFromBitrix24) {
+                        $logData['result'] = 'allowed_user_token_available_installer_token_wrong_client';
+                        $logData['error'] = $testResult['error'];
+                        $logData['warning'] = 'Installer token has WRONG_CLIENT error, but user token available';
+                        $this->logger->logAuthCheck('Auth check passed with warning', $logData);
+                        // Пропускаем проверку токена установщика, переходим к проверке прав доступа
+                        goto check_user_access;
+                    }
+                    // Если нет токена пользователя - блокируем доступ
+                    $logData['result'] = 'denied_token_wrong_client';
+                    $logData['error'] = $testResult['error'];
+                    $this->logger->logAuthCheck('Auth check failed', $logData);
+                    return false;
+                }
+                
                 // Другие ошибки авторизации токена установщика
                 if (in_array($testResult['error'], ['invalid_token', 'invalid_grant', 'invalid_client', 'NO_AUTH_FOUND'])) {
                     // Если есть токен пользователя и запрос из Bitrix24 - разрешаем доступ

@@ -37,7 +37,14 @@ try {
     // Логирование начала работы
     $logger->log('Index page access check', [
         'script' => 'index.php',
-        'has_auth_params' => !empty($_REQUEST['AUTH_ID']) || !empty($_REQUEST['DOMAIN']),
+        'has_auth_params' => !empty($_REQUEST['AUTH_ID']) || !empty($_REQUEST['APP_SID']) || !empty($_REQUEST['DOMAIN']),
+        'has_auth_id' => !empty($_REQUEST['AUTH_ID']),
+        'has_app_sid' => !empty($_REQUEST['APP_SID']),
+        'has_domain' => !empty($_REQUEST['DOMAIN']),
+        'request_method' => $_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN',
+        'query_string' => $_SERVER['QUERY_STRING'] ?? '',
+        'post_data_keys' => !empty($_POST) ? array_keys($_POST) : [],
+        'get_data_keys' => !empty($_GET) ? array_keys($_GET) : [],
         'timestamp' => date('Y-m-d H:i:s')
     ], 'info');
     
