@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import apiClient from '@/services/api';
+import Logger from '@/utils/logger';
 
 export const useUserStore = defineStore('user', {
   state: () => {
@@ -11,7 +12,7 @@ export const useUserStore = defineStore('user', {
         initialData = JSON.parse(appDataStr);
       }
     } catch (e) {
-      console.warn('UserStore: Failed to parse app_data from sessionStorage', e);
+      Logger.warn('USER_STORE', 'UserStore: Failed to parse app_data from sessionStorage', e);
     }
     
     // Инициализируем состояние из данных, переданных из PHP
@@ -60,7 +61,7 @@ export const useUserStore = defineStore('user', {
       this.loading = true;
       this.error = null;
       
-      console.log('UserStore: Starting fetchCurrentUser...');
+      Logger.debug('USER_STORE', 'UserStore: Starting fetchCurrentUser...');
       
       try {
         // Получаем параметры из URL
@@ -80,8 +81,8 @@ export const useUserStore = defineStore('user', {
             
             // Если данные пользователя уже есть в app_data - используем их
             if (appData.authInfo && appData.authInfo.is_authenticated && appData.authInfo.user) {
-              console.log('UserStore: User data already available in app_data, using it');
-              console.log('UserStore: app_data structure:', {
+              Logger.debug('USER_STORE', 'UserStore: User data already available in app_data, using it');
+              Logger.debug('USER_STORE', 'UserStore: app_data structure', {
                 has_authInfo: !!appData.authInfo,
                 authInfo_keys: Object.keys(appData.authInfo || {}),
                 has_departments: !!appData.authInfo.departments,
@@ -95,10 +96,10 @@ export const useUserStore = defineStore('user', {
               // Используем отделы из app_data, если они есть
               if (appData.authInfo.departments && Array.isArray(appData.authInfo.departments)) {
                 this.departments = appData.authInfo.departments;
-                console.log('UserStore: Departments loaded from app_data:', this.departments);
-                console.log('UserStore: Departments count:', this.departments.length);
+                Logger.debug('USER_STORE', 'UserStore: Departments loaded from app_data', this.departments);
+                Logger.debug('USER_STORE', 'UserStore: Departments count', { count: this.departments.length });
               } else {
-                console.log('UserStore: No departments in app_data', {
+                Logger.debug('USER_STORE', 'UserStore: No departments in app_data', {
                   has_departments: !!appData.authInfo.departments,
                   departments_type: typeof appData.authInfo.departments,
                   departments_value: appData.authInfo.departments,
@@ -106,7 +107,7 @@ export const useUserStore = defineStore('user', {
                 });
                 this.departments = []; // Убеждаемся, что departments - пустой массив
               }
-              console.log('UserStore: Final departments state:', this.departments);
+              Logger.debug('USER_STORE', 'UserStore: Final departments state', this.departments);
               this.loading = false;
               return; // Данные уже есть, не делаем запрос
             }
@@ -115,7 +116,7 @@ export const useUserStore = defineStore('user', {
             if ((!authId || !domain) && appData.authInfo && appData.authInfo.auth_id && appData.authInfo.domain) {
               authId = appData.authInfo.auth_id;
               domain = appData.authInfo.domain;
-              console.log('UserStore: Using token from app_data (PHP)', {
+              Logger.debug('USER_STORE', 'UserStore: Using token from app_data (PHP)', {
                 token_length: authId ? authId.length : 0,
                 domain: domain,
                 is_authenticated: appData.authInfo.is_authenticated,
@@ -124,7 +125,7 @@ export const useUserStore = defineStore('user', {
             }
           }
         } catch (e) {
-          console.warn('UserStore: Failed to parse app_data', e);
+          Logger.warn('USER_STORE', 'UserStore: Failed to parse app_data', e);
         }
         
         // Если токен есть в app_data, но данных пользователя нет - это режим 3 (токен админа)
@@ -135,7 +136,7 @@ export const useUserStore = defineStore('user', {
             !params.get('AUTH_ID') && !params.get('DOMAIN')) {
           // Это прямой доступ с токеном админа, но без данных пользователя
           // Не делаем запрос к API, так как токен админа может не работать
-          console.log('UserStore: Direct access with admin token but no user data. Skipping API request.');
+          Logger.debug('USER_STORE', 'UserStore: Direct access with admin token but no user data. Skipping API request.');
           this.loading = false;
           this.isAuthenticated = false;
           this.currentUser = null;
@@ -144,7 +145,7 @@ export const useUserStore = defineStore('user', {
         
         // Проверка: если внешний доступ включен и нет токена ни в URL, ни в app_data, не делаем запрос
         if (this.externalAccessEnabled && !authId && !domain) {
-          console.log('UserStore: External access enabled, but no token available. Skipping API request.');
+          Logger.debug('USER_STORE', 'UserStore: External access enabled, but no token available. Skipping API request.');
           this.loading = false;
           this.isAuthenticated = false;
           this.currentUser = null;
@@ -152,7 +153,7 @@ export const useUserStore = defineStore('user', {
         }
         
         // Логируем доступность BX24 API
-        console.log('UserStore: BX24 API check:', {
+        Logger.debug('USER_STORE', 'UserStore: BX24 API check', {
           hasBX: typeof BX !== 'undefined',
           hasBX24: typeof BX24 !== 'undefined' && BX24 !== null,
           hasBX24GetAuth: typeof BX24 !== 'undefined' && BX24 !== null && typeof BX24.getAuth === 'function',
@@ -167,11 +168,11 @@ export const useUserStore = defineStore('user', {
             try {
               const auth = JSON.parse(storedAuth);
               authId = auth.auth_token;
-              console.log('UserStore: Using stored auth token from sessionStorage', {
+              Logger.debug('USER_STORE', 'UserStore: Using stored auth token from sessionStorage', {
                 auth_token_length: authId ? authId.length : 0
               });
             } catch (e) {
-              console.warn('UserStore: Failed to parse stored auth token', e);
+              Logger.warn('USER_STORE', 'UserStore: Failed to parse stored auth token', e);
             }
           }
           
@@ -180,7 +181,7 @@ export const useUserStore = defineStore('user', {
           if (!authId) {
             // Пытаемся инициализировать BX24, если он доступен, но еще не инициализирован
             if (typeof BX24 !== 'undefined' && BX24 !== null && typeof BX24.init === 'function') {
-              console.log('UserStore: Initializing BX24...');
+              Logger.debug('USER_STORE', 'UserStore: Initializing BX24...');
               try {
                 await new Promise((resolve, reject) => {
                   const timeout = setTimeout(() => {
@@ -196,21 +197,21 @@ export const useUserStore = defineStore('user', {
                   
                   BX24.init(function() {
                     clearTimeout(timeout);
-                    console.log('UserStore: BX24 initialized');
+                    Logger.debug('USER_STORE', 'UserStore: BX24 initialized');
                     resolve();
                   });
                 });
               } catch (e) {
-                console.warn('UserStore: Failed to initialize BX24', e);
+                Logger.warn('USER_STORE', 'UserStore: Failed to initialize BX24', e);
               }
             } else {
-              console.warn('UserStore: BX24.init() is not available (BX24 is null or undefined)');
+              Logger.warn('USER_STORE', 'UserStore: BX24.init() is not available (BX24 is null or undefined)');
             }
             
             // Теперь пытаемся получить токен через BX24.getAuth()
             // Проверяем наличие BX24 перед каждым вызовом
             if (typeof BX24 !== 'undefined' && BX24 !== null && typeof BX24.getAuth === 'function') {
-              console.log('UserStore: Getting auth token via BX24.getAuth()...');
+              Logger.debug('USER_STORE', 'UserStore: Getting auth token via BX24.getAuth()...');
               try {
                 // Получаем токен через Promise с меньшим таймаутом
                 const auth = await new Promise((resolve, reject) => {
@@ -239,16 +240,16 @@ export const useUserStore = defineStore('user', {
                 });
                 
                 authId = auth.auth_token;
-                console.log('UserStore: Got auth token from BX24.getAuth()', {
+                Logger.debug('USER_STORE', 'UserStore: Got auth token from BX24.getAuth()', {
                   auth_token_length: authId ? authId.length : 0,
                   domain: auth.domain || domain
                 });
               } catch (e) {
-                console.warn('UserStore: Failed to get auth token from BX24.getAuth()', e);
+                Logger.warn('USER_STORE', 'UserStore: Failed to get auth token from BX24.getAuth()', e);
                 // Не используем APP_SID как fallback, так как он не работает для API
               }
             } else {
-              console.warn('UserStore: BX24.getAuth() is not available (BX24 is null or undefined)');
+              Logger.warn('USER_STORE', 'UserStore: BX24.getAuth() is not available (BX24 is null or undefined)');
             }
             
             // Если все еще нет токена, используем APP_SID (но он не будет работать)
@@ -265,7 +266,7 @@ export const useUserStore = defineStore('user', {
                 } else {
                   reason = 'BX24.getAuth() timeout';
                 }
-                console.warn('UserStore: Using APP_SID as fallback - this may not work for API calls', {
+                Logger.warn('USER_STORE', 'UserStore: Using APP_SID as fallback - this may not work for API calls', {
                   reason: reason
                 });
               }
@@ -273,14 +274,14 @@ export const useUserStore = defineStore('user', {
           }
         }
         
-        console.log('UserStore: Request params:', {
+        Logger.debug('USER_STORE', 'UserStore: Request params', {
           AUTH_ID: authId ? 'present' : 'missing',
           DOMAIN: domain ? 'present' : 'missing'
         });
         
         // Проверка: если внешний доступ включен и нет токена после всех попыток, не делаем запрос
         if (this.externalAccessEnabled && (!authId || !domain)) {
-          console.log('UserStore: External access enabled, but no auth token after all attempts. Skipping API request.');
+          Logger.debug('USER_STORE', 'UserStore: External access enabled, but no auth token after all attempts. Skipping API request.');
           this.loading = false;
           this.isAuthenticated = false;
           this.currentUser = null;
@@ -303,7 +304,7 @@ export const useUserStore = defineStore('user', {
         
         const response = await apiClient.get('/user/current', requestConfig);
         
-        console.log('UserStore: API response:', {
+        Logger.debug('USER_STORE', 'UserStore: API response', {
           success: response.data.success,
           hasData: !!response.data.data,
           hasUser: !!response.data.data?.user,
@@ -321,7 +322,7 @@ export const useUserStore = defineStore('user', {
             suggestions: response.data.suggestions
           };
           
-          console.error('UserStore: API returned success: false', errorDetails);
+          Logger.error('ERROR', 'UserStore: API returned success: false', errorDetails);
           
           // Сохраняем детальную информацию об ошибке
           this.error = errorMessage;
@@ -376,7 +377,7 @@ export const useUserStore = defineStore('user', {
         this.departments = response.data.data.departments || [];
         this.error = null; // Очищаем ошибку при успехе
         
-        console.log('UserStore: User data loaded:', {
+        Logger.debug('USER_STORE', 'UserStore: User data loaded', {
           userId: this.currentUser?.ID,
           name: this.currentUser?.NAME,
           isAdmin: this.isAdmin,
@@ -386,8 +387,8 @@ export const useUserStore = defineStore('user', {
         });
         
       } catch (error) {
-        console.error('UserStore: Error fetching user:', error);
-        console.error('UserStore: Error details:', {
+        Logger.error('ERROR', 'UserStore: Error fetching user', error);
+        Logger.error('ERROR', 'UserStore: Error details', {
           message: error.message,
           response: error.response?.data,
           status: error.response?.status,
@@ -398,7 +399,7 @@ export const useUserStore = defineStore('user', {
         // Если ошибка 401 (Unauthorized) - это нормальная ситуация отсутствия авторизации
         // Не устанавливаем error, чтобы показать блок "no-auth" вместо ошибки
         if (error.response?.status === 401) {
-          console.log('UserStore: 401 Unauthorized - это нормально, авторизация отсутствует');
+          Logger.debug('USER_STORE', 'UserStore: 401 Unauthorized - это нормально, авторизация отсутствует');
           this.error = null; // Не показываем ошибку, покажем блок "no-auth"
           this.isAuthenticated = false;
           return; // Не бросаем ошибку, просто выходим

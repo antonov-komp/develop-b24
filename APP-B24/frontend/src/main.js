@@ -3,6 +3,7 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import router from './router';
 import './assets/css/main.css';
+import Logger from './utils/logger';
 
 // Создание приложения
 const app = createApp(App);
@@ -16,7 +17,7 @@ app.use(router);
 
 // Глобальная обработка ошибок
 app.config.errorHandler = (err, instance, info) => {
-  console.error('Vue error:', err, info);
+  Logger.error('ERROR', 'Vue error', { err, info, component: instance?.$options?.name || 'unknown' });
   
   // Логирование ошибки (можно отправить на сервер)
   if (typeof BX !== 'undefined' && BX.ajax) {
@@ -33,7 +34,7 @@ app.config.errorHandler = (err, instance, info) => {
 };
 
 // Монтирование приложения
-console.log('Vue app mounting...', { 
+Logger.info('VUE_LIFECYCLE', 'Vue app mounting...', { 
   appElement: document.querySelector('#app'),
   router: router,
   routes: router.getRoutes(),
@@ -42,20 +43,20 @@ console.log('Vue app mounting...', {
 
 try {
   app.mount('#app');
-  console.log('Vue app mounted successfully');
+  Logger.info('VUE_LIFECYCLE', 'Vue app mounted successfully');
   
   // После монтирования проверяем текущий маршрут и исправляем, если нужно
   setTimeout(() => {
     const currentPath = router.currentRoute.value.path;
-    console.log('Current route after mount:', currentPath);
+    Logger.debug('ROUTER', 'Current route after mount', { path: currentPath });
     
     // Если маршрут содержит index.php, редиректим на главную
     if (currentPath === '/index.php' || currentPath.includes('index.php')) {
-      console.log('Redirecting from index.php to /');
+      Logger.debug('ROUTER', 'Redirecting from index.php to /');
       router.replace({ path: '/', query: router.currentRoute.value.query });
     }
   }, 100);
 } catch (error) {
-  console.error('Error mounting Vue app:', error);
+  Logger.error('ERROR', 'Error mounting Vue app', { error });
 }
 

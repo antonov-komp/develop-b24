@@ -157,6 +157,7 @@ import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '@/stores/userStore';
 import { showSuccess, showError } from '@/utils/bitrix24';
+import Logger from '@/utils/logger';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -249,8 +250,8 @@ const goToAccessControl = () => {
 };
 
 onMounted(async () => {
-  console.log('IndexPage mounted, fetching user data...');
-  console.log('Initial store state:', {
+  Logger.info('VUE_LIFECYCLE', 'IndexPage mounted, fetching user data...');
+  Logger.debug('VUE_LIFECYCLE', 'Initial store state', {
     isAdmin: userStore.isAdmin,
     isAdminUser: userStore.isAdminUser,
     currentUser: userStore.currentUser,
@@ -261,14 +262,14 @@ onMounted(async () => {
   });
   try {
     await userStore.fetchCurrentUser();
-    console.log('User data loaded:', userStore.currentUser);
-    console.log('Admin status after fetch:', {
+    Logger.debug('VUE_LIFECYCLE', 'User data loaded', userStore.currentUser);
+    Logger.debug('VUE_LIFECYCLE', 'Admin status after fetch', {
       isAdmin: userStore.isAdmin,
       isAdminUser: userStore.isAdminUser,
       userAdminField: userStore.currentUser?.ADMIN,
       userIsAdminField: userStore.currentUser?.IS_ADMIN
     });
-    console.log('Auth status after fetch:', {
+    Logger.debug('VUE_LIFECYCLE', 'Auth status after fetch', {
       isAuthenticated: userStore.isAuthenticated,
       externalAccessEnabled: userStore.externalAccessEnabled,
       hasUser: !!userStore.currentUser,
@@ -276,8 +277,8 @@ onMounted(async () => {
       error: userStore.error
     });
   } catch (err) {
-    console.error('Ошибка загрузки пользователя:', err);
-    console.error('Error details:', {
+    Logger.error('ERROR', 'Ошибка загрузки пользователя', err);
+    Logger.error('ERROR', 'Error details', {
       message: err.message,
       response: err.response?.data,
       status: err.response?.status

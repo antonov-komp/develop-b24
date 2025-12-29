@@ -1,4 +1,5 @@
 import axios from 'axios';
+import Logger from '@/utils/logger';
 
 // Базовый URL API
 // Используем отдельные файлы для каждого endpoint (обход проблемы с nginx роутингом)
@@ -43,7 +44,7 @@ apiClient.interceptors.request.use(
         // Добавляем route параметр
         config.params.route = fullPath;
         
-        console.log('API: Transformed URL for index.php routing', {
+        Logger.debug('API', 'API: Transformed URL for index.php routing', {
           originalUrl: url,
           newUrl: config.url,
           route: fullPath,
@@ -76,12 +77,12 @@ apiClient.interceptors.request.use(
         const auth = JSON.parse(storedAuth);
         authId = auth.auth_token;
         domain = auth.domain;
-        console.log('API: Using stored auth token from sessionStorage', {
+        Logger.debug('API', 'API: Using stored auth token from sessionStorage', {
           has_auth_token: !!authId,
           has_domain: !!domain
         });
       } catch (e) {
-        console.warn('API: Failed to parse stored auth token', e);
+        Logger.warn('API', 'API: Failed to parse stored auth token', e);
       }
     }
     
@@ -103,7 +104,7 @@ apiClient.interceptors.request.use(
       if (!authId) {
         authId = params.get('APP_SID');
         if (authId) {
-          console.warn('API: Using APP_SID from URL - this may not work for API calls');
+          Logger.warn('API', 'API: Using APP_SID from URL - this may not work for API calls');
         }
       }
     }
@@ -125,7 +126,7 @@ apiClient.interceptors.request.use(
           }
         }
       } catch (e) {
-        console.warn('API: Failed to get params from router', e);
+        Logger.warn('API', 'API: Failed to get params from router', e);
       }
     }
     
@@ -137,14 +138,14 @@ apiClient.interceptors.request.use(
         AUTH_ID: authId,
         DOMAIN: domain,
       };
-      console.log('API: Auth params added to request', {
+      Logger.debug('API', 'API: Auth params added to request', {
         has_auth_id: !!authId,
         auth_id_length: authId ? authId.length : 0,
         domain: domain,
         all_params: config.params
       });
     } else {
-      console.warn('API: Missing AUTH_ID or DOMAIN', {
+      Logger.warn('API', 'API: Missing AUTH_ID or DOMAIN', {
         has_auth_id: !!authId,
         has_domain: !!domain,
         url_search: window.location.search
@@ -152,8 +153,8 @@ apiClient.interceptors.request.use(
     }
     
     const fullUrl = config.baseURL + config.url + (config.params ? '?' + new URLSearchParams(config.params).toString() : '');
-    console.log('API Request:', config.method?.toUpperCase(), fullUrl);
-    console.log('API Request details:', {
+    Logger.debug('API', 'API Request', { method: config.method?.toUpperCase(), url: fullUrl });
+    Logger.debug('API', 'API Request details', {
       method: config.method?.toUpperCase(),
       baseURL: config.baseURL,
       url: config.url,
@@ -173,7 +174,7 @@ apiClient.interceptors.response.use(
   (response) => {
     // Логирование в development режиме
     if (import.meta.env.DEV) {
-      console.log('API Response:', response.config.url, response.data);
+      Logger.debug('API', 'API Response', { url: response.config.url, data: response.data });
     }
     
     // Проверяем success: false даже при HTTP 200
@@ -225,15 +226,15 @@ apiClient.interceptors.response.use(
       }
       
       if (status === 401) {
-        console.error('Ошибка авторизации');
+        Logger.error('ERROR', 'Ошибка авторизации');
       } else if (status === 403) {
-        console.error('Доступ запрещен');
+        Logger.error('ERROR', 'Доступ запрещен');
       } else if (status >= 500) {
-        console.error('Ошибка сервера:', data);
+        Logger.error('ERROR', 'Ошибка сервера', data);
       }
     } else if (error.request) {
       // Запрос отправлен, но ответа нет
-      console.error('Нет ответа от сервера');
+      Logger.error('ERROR', 'Нет ответа от сервера');
       
       if (typeof BX !== 'undefined' && BX.UI && BX.UI.Notification) {
         BX.UI.Notification.Center.notify({
@@ -244,7 +245,7 @@ apiClient.interceptors.response.use(
       }
     } else {
       // Ошибка при настройке запроса
-      console.error('Ошибка запроса:', error.message);
+      Logger.error('ERROR', 'Ошибка запроса', { message: error.message });
     }
     
     return Promise.reject(error);

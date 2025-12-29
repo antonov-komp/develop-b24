@@ -290,6 +290,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { bitrix24Api } from '@/services/bitrix24Api';
+import Logger from '@/utils/logger';
 
 const router = useRouter();
 const loading = ref(true);
@@ -348,7 +349,7 @@ onMounted(async () => {
     }
   } catch (err) {
     error.value = err.response?.data?.message || err.message || 'Ошибка анализа токена';
-    console.error('Ошибка анализа токена:', err);
+    Logger.error('ERROR', 'Ошибка анализа токена', err);
   } finally {
     loading.value = false;
   }
@@ -358,7 +359,7 @@ function copyToClipboard() {
   navigator.clipboard.writeText(jsonOutput.value).then(() => {
     alert('JSON скопирован в буфер обмена');
   }).catch(err => {
-    console.error('Ошибка копирования:', err);
+    Logger.error('ERROR', 'Ошибка копирования', err);
   });
 }
 </script>

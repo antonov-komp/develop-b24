@@ -12,11 +12,12 @@
 import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { isInBitrix24, getBitrix24Data } from '@/utils/bitrix24';
+import Logger from '@/utils/logger';
 
 const router = useRouter();
 
 onMounted(() => {
-  console.log('App.vue mounted', {
+  Logger.info('VUE_LIFECYCLE', 'App.vue mounted', {
     currentRoute: router.currentRoute.value,
     location: window.location.href,
     search: window.location.search,
@@ -26,7 +27,7 @@ onMounted(() => {
   // Проверка, что router-view рендерится
   setTimeout(() => {
     const routerView = document.querySelector('#app router-view, #app > div');
-    console.log('Router view check:', {
+    Logger.debug('ROUTER', 'Router view check', {
       hasRouterView: !!routerView,
       appContent: document.querySelector('#app')?.innerHTML?.substring(0, 200)
     });
@@ -34,22 +35,22 @@ onMounted(() => {
   
   // Проверка, что мы внутри Bitrix24 iframe
   if (isInBitrix24()) {
-    console.log('Bitrix24 BX.* API доступен');
+    Logger.info('BITRIX24', 'Bitrix24 BX.* API доступен');
     
     // Получение данных из Bitrix24
     const bitrixData = getBitrix24Data();
     if (bitrixData) {
-      console.log('Bitrix24 данные:', bitrixData);
+      Logger.debug('BITRIX24', 'Bitrix24 данные', bitrixData);
     }
     
     // Инициализация Bitrix24 UI (если нужно)
     if (typeof BX !== 'undefined' && BX.ready) {
       BX.ready(() => {
-        console.log('Bitrix24 готов');
+        Logger.info('BITRIX24', 'Bitrix24 готов');
       });
     }
   } else {
-    console.warn('Приложение запущено вне Bitrix24 iframe');
+    Logger.warn('BITRIX24', 'Приложение запущено вне Bitrix24 iframe');
   }
   
   // Инициализация роутера
@@ -59,7 +60,7 @@ onMounted(() => {
   const hasAuthId = params.has('AUTH_ID') || params.has('APP_SID');
   const hasDomain = params.has('DOMAIN');
   
-  console.log('URL params:', {
+  Logger.debug('BITRIX24', 'URL params', {
     AUTH_ID: params.get('AUTH_ID') ? 'present' : (params.get('APP_SID') ? 'present (APP_SID)' : 'missing'),
     DOMAIN: params.get('DOMAIN') ? 'present' : 'missing'
   });
@@ -67,9 +68,9 @@ onMounted(() => {
   if (!hasAuthId || !hasDomain) {
     // В development режиме можно разрешить доступ без параметров
     if (import.meta.env.DEV) {
-      console.warn('Development mode: AUTH_ID/APP_SID or DOMAIN not found');
+      Logger.warn('BITRIX24', 'Development mode: AUTH_ID/APP_SID or DOMAIN not found');
     } else {
-      console.error('Missing AUTH_ID/APP_SID or DOMAIN in production mode');
+      Logger.error('ERROR', 'Missing AUTH_ID/APP_SID or DOMAIN in production mode');
     }
   }
 });

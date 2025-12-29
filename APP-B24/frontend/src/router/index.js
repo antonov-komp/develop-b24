@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import IndexPage from '@/components/IndexPage.vue';
 import AccessControlPage from '@/components/AccessControlPage.vue';
 import TokenAnalysisPage from '@/components/TokenAnalysisPage.vue';
+import Logger from '@/utils/logger';
 
 const routes = [
   {
@@ -43,7 +44,7 @@ const routes = [
 // Если мы в iframe Bitrix24, используем текущий путь
 const getBasePath = () => {
   const path = window.location.pathname;
-  console.log('Router: Determining base path from:', path);
+  Logger.debug('ROUTER', 'Router: Determining base path from', { path });
   
   // Если путь содержит /APP-B24/, используем его
   if (path.includes('/APP-B24')) {
@@ -59,11 +60,11 @@ const getBasePath = () => {
       basePath = match ? match[1] : '/APP-B24/';
     }
     
-    console.log('Router: Base path determined:', basePath);
+    Logger.debug('ROUTER', 'Router: Base path determined', { basePath });
     return basePath;
   }
   // Иначе используем дефолтный путь
-  console.log('Router: Using default base path: /APP-B24/');
+  Logger.debug('ROUTER', 'Router: Using default base path: /APP-B24/');
   return '/APP-B24/';
 };
 
@@ -96,7 +97,7 @@ const MAX_REDIRECT_ATTEMPTS = 3;
 
 // Навигационные хуки
 router.beforeEach((to, from, next) => {
-  console.log('Router beforeEach:', { to: to.path, from: from.path, fullPath: to.fullPath, query: to.query });
+  Logger.debug('ROUTER', 'Router beforeEach', { to: to.path, from: from.path, fullPath: to.fullPath, query: to.query });
   
   // Проверяем, включен ли внешний доступ (проверяем ДО всех остальных проверок)
   let externalAccessEnabled = false;
@@ -110,11 +111,11 @@ router.beforeEach((to, from, next) => {
     // Игнорируем ошибки парсинга
   }
   
-  console.log('Router: External access enabled:', externalAccessEnabled);
+  Logger.debug('ROUTER', 'Router: External access enabled', { externalAccessEnabled });
   
   // Если маршрут содержит index.php, редиректим на главную
   if (to.path === '/index.php' || to.path.includes('index.php')) {
-    console.log('Router: Redirecting from index.php to /');
+    Logger.debug('ROUTER', 'Router: Redirecting from index.php to /');
     redirectAttempts = 0; // Сбрасываем счётчик при нормальном редиректе
     next({ path: '/', query: to.query, replace: true });
     return;
@@ -128,7 +129,7 @@ router.beforeEach((to, from, next) => {
   
   // Если параметры есть в текущем URL, но их нет в query целевого маршрута, добавляем их
   if (authId && domain && (!to.query.AUTH_ID && !to.query.APP_SID) && !to.query.DOMAIN) {
-    console.log('Router: Adding auth params to route query');
+    Logger.debug('ROUTER', 'Router: Adding auth params to route query');
     redirectAttempts = 0; // Сбрасываем счётчик при успешном добавлении параметров
     next({
       path: to.path,
@@ -148,7 +149,7 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth) {
     // Если внешний доступ включен, пропускаем проверку авторизации
     if (externalAccessEnabled) {
-      console.log('Router: External access enabled, skipping auth check');
+      Logger.debug('ROUTER', 'Router: External access enabled, skipping auth check');
       redirectAttempts = 0; // Сбрасываем счётчик
       next();
       return;
@@ -161,11 +162,11 @@ router.beforeEach((to, from, next) => {
     if (!routeAuthId || !routeDomain) {
       // Если уже на главной странице и нет параметров - это бесконечный цикл
       if (to.name === 'index' && to.path === '/') {
-        console.error('Router: Infinite redirect detected! Missing AUTH_ID or DOMAIN. Already on index page.');
+        Logger.error('ERROR', 'Router: Infinite redirect detected! Missing AUTH_ID or DOMAIN. Already on index page.');
         redirectAttempts = 0; // Сбрасываем счётчик
         
         // Разрешаем доступ без авторизации, чтобы предотвратить бесконечный цикл
-        console.warn('Router: Allowing access without auth to prevent infinite loop');
+        Logger.warn('ROUTER', 'Router: Allowing access without auth to prevent infinite loop');
         next();
         return;
       }
@@ -173,18 +174,18 @@ router.beforeEach((to, from, next) => {
       // Проверяем количество попыток редиректа
       if (redirectAttempts >= MAX_REDIRECT_ATTEMPTS) {
         // Превышен лимит попыток - это бесконечный цикл
-        console.error('Router: Infinite redirect detected! Missing AUTH_ID or DOMAIN. Attempts:', redirectAttempts);
+        Logger.error('ERROR', 'Router: Infinite redirect detected! Missing AUTH_ID or DOMAIN', { attempts: redirectAttempts });
         redirectAttempts = 0; // Сбрасываем счётчик
         
         // Разрешаем доступ без авторизации, чтобы предотвратить бесконечный цикл
-        console.warn('Router: Allowing access without auth to prevent infinite loop (max attempts reached)');
+        Logger.warn('ROUTER', 'Router: Allowing access without auth to prevent infinite loop (max attempts reached)');
         next();
         return;
       }
       
       // Увеличиваем счётчик попыток
       redirectAttempts++;
-      console.warn('Router: Missing AUTH_ID or DOMAIN, redirecting to index (attempt', redirectAttempts, 'of', MAX_REDIRECT_ATTEMPTS + ')');
+      Logger.warn('ROUTER', 'Router: Missing AUTH_ID or DOMAIN, redirecting to index', { attempt: redirectAttempts, max: MAX_REDIRECT_ATTEMPTS });
       
       // Редирект на главную страницу с сохранением параметров, если они есть
       const redirectQuery = authId && domain ? { AUTH_ID: authId, DOMAIN: domain } : {};
@@ -201,13 +202,13 @@ router.beforeEach((to, from, next) => {
     // Пока пропускаем, проверка будет в компонентах
   }
   
-  console.log('Router: Navigation allowed to', to.path);
+  Logger.debug('ROUTER', 'Router: Navigation allowed to', { path: to.path });
   next();
 });
 
 // Логирование после навигации
 router.afterEach((to, from) => {
-  console.log('Router afterEach:', { to: to.path, from: from.path });
+  Logger.debug('ROUTER', 'Router afterEach', { to: to.path, from: from.path });
 });
 
 export default router;

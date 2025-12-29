@@ -168,7 +168,10 @@ class VueAppService
             $script .= '                domain: ' . json_encode($domain, JSON_UNESCAPED_UNICODE) . "\n";
             $script .= '            };' . "\n";
             $script .= '            sessionStorage.setItem("bitrix24_auth", JSON.stringify(authData));' . "\n";
-            $script .= '            console.log("Auth token from PHP saved to sessionStorage");' . "\n";
+            $script .= '            // Логирование через Logger будет доступно после загрузки модуля' . "\n";
+            $script .= '            if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+            $script .= '                window.__LOGGER__.info("INIT", "Auth token from PHP saved to sessionStorage");' . "\n";
+            $script .= '            }' . "\n";
             $script .= '        })();' . "\n";
         }
         
@@ -189,7 +192,9 @@ class VueAppService
             $script .= '                    try {' . "\n";
             $script .= '                        // Проверяем BX24 перед вызовом' . "\n";
             $script .= '                        if (typeof BX24 === "undefined" || BX24 === null || typeof BX24.init !== "function") {' . "\n";
-            $script .= '                            console.warn("Bitrix24 SDK is not available (BX24 is null or undefined)");' . "\n";
+            $script .= '                            if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+            $script .= '                                window.__LOGGER__.warn("BITRIX24", "Bitrix24 SDK is not available (BX24 is null or undefined)");' . "\n";
+            $script .= '                            }' . "\n";
             $script .= '                            return false;' . "\n";
             $script .= '                        }' . "\n";
             $script .= '                        ' . "\n";
@@ -200,17 +205,25 @@ class VueAppService
             $script .= '                                    BX24.getAuth(function(auth) {' . "\n";
             $script .= '                                        if (auth && auth.auth_token) {' . "\n";
             $script .= '                                            sessionStorage.setItem("bitrix24_auth", JSON.stringify(auth));' . "\n";
-            $script .= '                                            console.log("Bitrix24 auth token retrieved via BX24.getAuth()");' . "\n";
+            $script .= '                                            if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+            $script .= '                                                window.__LOGGER__.debug("BITRIX24", "Bitrix24 auth token retrieved via BX24.getAuth()");' . "\n";
+            $script .= '                                            }' . "\n";
             $script .= '                                        }' . "\n";
             $script .= '                                    });' . "\n";
             $script .= '                                } else {' . "\n";
-            $script .= '                                    console.warn("Bitrix24.getAuth() is not available");' . "\n";
+            $script .= '                                    if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+            $script .= '                                        window.__LOGGER__.warn("BITRIX24", "Bitrix24.getAuth() is not available");' . "\n";
+            $script .= '                                    }' . "\n";
             $script .= '                                }' . "\n";
             $script .= '                            }' . "\n";
             $script .= '                        });' . "\n";
-            $script .= '                        console.log("Bitrix24 SDK initialized successfully");' . "\n";
+            $script .= '                        if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+            $script .= '                            window.__LOGGER__.info("INIT", "Bitrix24 SDK initialized successfully");' . "\n";
+            $script .= '                        }' . "\n";
             $script .= '                    } catch (e) {' . "\n";
-            $script .= '                        console.error("Error initializing Bitrix24 SDK:", e);' . "\n";
+            $script .= '                        if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+            $script .= '                            window.__LOGGER__.error("ERROR", "Error initializing Bitrix24 SDK", e);' . "\n";
+            $script .= '                        }' . "\n";
             $script .= '                    }' . "\n";
             $script .= '                    return true;' . "\n";
             $script .= '                }' . "\n";
@@ -228,7 +241,9 @@ class VueAppService
             $script .= '                if (tryInitBitrix24() || attempts >= maxAttempts) {' . "\n";
             $script .= '                    clearInterval(interval);' . "\n";
             $script .= '                    if (attempts >= maxAttempts) {' . "\n";
-            $script .= '                        console.warn("Bitrix24 SDK not loaded after " + maxAttempts + " attempts. App may work in limited mode.");' . "\n";
+            $script .= '                        if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+            $script .= '                            window.__LOGGER__.warn("BITRIX24", "Bitrix24 SDK not loaded after " + maxAttempts + " attempts. App may work in limited mode.");' . "\n";
+            $script .= '                        }' . "\n";
             $script .= '                    }' . "\n";
             $script .= '                }' . "\n";
             $script .= '            }, 100);' . "\n";
@@ -274,14 +289,12 @@ class VueAppService
         $script .= '            const appData = ' . $jsonData . ';' . "\n";
         $script .= '            sessionStorage.setItem("app_data", JSON.stringify(appData));' . "\n";
         $script .= '            window.__APP_DATA__ = appData;' . "\n";
-        $script .= '            console.log("App data from PHP saved");' . "\n";
-        $script .= '            if (appData.authInfo && appData.authInfo.departments) {' . "\n";
-        $script .= '                console.log("App data: Departments found:", appData.authInfo.departments);' . "\n";
-        $script .= '            } else {' . "\n";
-        $script .= '                console.log("App data: No departments in authInfo", {' . "\n";
-        $script .= '                    has_authInfo: !!appData.authInfo,' . "\n";
-        $script .= '                    authInfo_keys: appData.authInfo ? Object.keys(appData.authInfo) : []' . "\n";
-        $script .= '                });' . "\n";
+        $script .= '            // Логирование через Logger будет доступно после загрузки модуля' . "\n";
+        $script .= '            if (typeof window.__LOGGER__ !== "undefined") {' . "\n";
+        $script .= '                window.__LOGGER__.info("INIT", "App data from PHP saved");' . "\n";
+        $script .= '                if (appData.authInfo && appData.authInfo.departments) {' . "\n";
+        $script .= '                    window.__LOGGER__.debug("INIT", "App data: Departments found", appData.authInfo.departments);' . "\n";
+        $script .= '                }' . "\n";
         $script .= '            }' . "\n";
         $script .= '        })();' . "\n";
         

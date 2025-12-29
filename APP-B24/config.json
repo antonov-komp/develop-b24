@@ -6,6 +6,44 @@
     "message": "Интерфейс приложения временно недоступен. Пожалуйста, попробуйте позже.",
     "last_updated": "2025-12-29 19:55:00",
     "updated_by": "system"
+  },
+  "logging": {
+    "enabled": false,
+    "default_level": "info",
+    "layers": {
+      "INIT": {
+        "enabled": true,
+        "level": "info"
+      },
+      "ROUTER": {
+        "enabled": true,
+        "level": "debug"
+      },
+      "VUE_LIFECYCLE": {
+        "enabled": true,
+        "level": "info"
+      },
+      "USER_STORE": {
+        "enabled": true,
+        "level": "debug"
+      },
+      "ACCESS_CONTROL": {
+        "enabled": true,
+        "level": "debug"
+      },
+      "API": {
+        "enabled": true,
+        "level": "debug"
+      },
+      "BITRIX24": {
+        "enabled": true,
+        "level": "info"
+      },
+      "ERROR": {
+        "enabled": true,
+        "level": "error"
+      }
+    }
   }
 }
 

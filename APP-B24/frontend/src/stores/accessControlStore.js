@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import apiClient from '@/services/api';
+import Logger from '@/utils/logger';
 
 export const useAccessControlStore = defineStore('accessControl', {
   state: () => ({
@@ -151,7 +152,7 @@ export const useAccessControlStore = defineStore('accessControl', {
           throw new Error(response.data.message || 'Failed to get departments');
         }
       } catch (error) {
-        console.error('Ошибка загрузки отделов:', error);
+        Logger.error('ERROR', 'Ошибка загрузки отделов', error);
         this.availableDepartments = [];
         this.error = error.response?.data?.message || error.message || 'Ошибка загрузки отделов';
         throw error;
@@ -171,7 +172,7 @@ export const useAccessControlStore = defineStore('accessControl', {
           throw new Error(response.data.message || 'Failed to get users');
         }
       } catch (error) {
-        console.error('Ошибка загрузки пользователей:', error);
+        Logger.error('ERROR', 'Ошибка загрузки пользователей', error);
         this.availableUsers = [];
         this.error = error.response?.data?.message || error.message || 'Ошибка загрузки пользователей';
         throw error;

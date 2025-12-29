@@ -118,6 +118,7 @@ $authInfoBuilderService = new App\Services\AuthInfoBuilderService(
 $indexPageService = new App\Services\IndexPageService(
     $routeService,
     $configValidatorService,
+    $configService,
     $accessModeService,
     $authService,
     $authInfoBuilderService,

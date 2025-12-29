@@ -417,6 +417,87 @@ class ConfigService
         
         return array_merge($defaultSettings, $settings);
     }
+    
+    /**
+     * Получение конфигурации логирования
+     * 
+     * Читает config.json и возвращает конфигурацию логирования.
+     * При ошибках чтения/парсинга использует значения по умолчанию.
+     * 
+     * @return array Конфигурация логирования
+     *   - 'enabled' (bool) — включено ли логирование
+     *   - 'default_level' (string) — уровень по умолчанию (debug, info, warn, error)
+     *   - 'layers' (array) — настройки слоёв логирования
+     */
+    public function getLoggingConfig(): array
+    {
+        $configFile = $this->configDir . 'config.json';
+        
+        // Значения по умолчанию
+        $defaultConfig = [
+            'enabled' => true,
+            'default_level' => 'info',
+            'layers' => [
+                'INIT' => ['enabled' => true, 'level' => 'info'],
+                'ROUTER' => ['enabled' => true, 'level' => 'debug'],
+                'VUE_LIFECYCLE' => ['enabled' => true, 'level' => 'info'],
+                'USER_STORE' => ['enabled' => true, 'level' => 'debug'],
+                'ACCESS_CONTROL' => ['enabled' => true, 'level' => 'debug'],
+                'API' => ['enabled' => true, 'level' => 'debug'],
+                'BITRIX24' => ['enabled' => true, 'level' => 'info'],
+                'ERROR' => ['enabled' => true, 'level' => 'error']
+            ]
+        ];
+        
+        // Если файл отсутствует — используем значения по умолчанию
+        if (!file_exists($configFile)) {
+            return $defaultConfig;
+        }
+        
+        // Читаем файл конфига
+        $configContent = @file_get_contents($configFile);
+        if ($configContent === false) {
+            return $defaultConfig;
+        }
+        
+        // Парсим JSON
+        $config = @json_decode($configContent, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return $defaultConfig;
+        }
+        
+        // Проверяем наличие секции logging
+        if (!isset($config['logging']) || !is_array($config['logging'])) {
+            return $defaultConfig;
+        }
+        
+        $loggingConfig = $config['logging'];
+        
+        // Объединяем с значениями по умолчанию
+        $result = [
+            'enabled' => isset($loggingConfig['enabled']) 
+                ? (bool)$loggingConfig['enabled'] 
+                : $defaultConfig['enabled'],
+            'default_level' => $loggingConfig['default_level'] ?? $defaultConfig['default_level'],
+            'layers' => array_merge($defaultConfig['layers'], $loggingConfig['layers'] ?? [])
+        ];
+        
+        // Объединяем настройки каждого слоя
+        if (isset($loggingConfig['layers']) && is_array($loggingConfig['layers'])) {
+            foreach ($loggingConfig['layers'] as $layer => $layerConfig) {
+                if (isset($result['layers'][$layer])) {
+                    $result['layers'][$layer] = array_merge(
+                        $result['layers'][$layer],
+                        $layerConfig
+                    );
+                } else {
+                    $result['layers'][$layer] = $layerConfig;
+                }
+            }
+        }
+        
+        return $result;
+    }
 }
 
 

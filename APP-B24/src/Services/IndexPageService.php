@@ -12,6 +12,7 @@ class IndexPageService
 {
     protected RouteService $routeService;
     protected ConfigValidatorService $configValidatorService;
+    protected ConfigService $configService;
     protected AccessModeService $accessModeService;
     protected AuthService $authService;
     protected AuthInfoBuilderService $authInfoBuilderService;
@@ -22,6 +23,7 @@ class IndexPageService
     public function __construct(
         RouteService $routeService,
         ConfigValidatorService $configValidatorService,
+        ConfigService $configService,
         AccessModeService $accessModeService,
         AuthService $authService,
         AuthInfoBuilderService $authInfoBuilderService,
@@ -31,6 +33,7 @@ class IndexPageService
     ) {
         $this->routeService = $routeService;
         $this->configValidatorService = $configValidatorService;
+        $this->configService = $configService;
         $this->accessModeService = $accessModeService;
         $this->authService = $authService;
         $this->authInfoBuilderService = $authInfoBuilderService;
@@ -102,10 +105,14 @@ class IndexPageService
         if ($route === '/') {
             $authInfo = $this->authInfoBuilderService->build($authResult, $accessMode);
             
+            // Получение конфигурации логирования
+            $loggingConfig = $this->configService->getLoggingConfig();
+            
             // Построение данных для Vue.js
             $vueAppData = [
                 'authInfo' => $authInfo,
-                'externalAccessEnabled' => $accessMode['external_access_enabled']
+                'externalAccessEnabled' => $accessMode['external_access_enabled'],
+                'loggingConfig' => $loggingConfig
             ];
             
             // Валидация данных перед передачей в Vue.js

@@ -401,6 +401,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAccessControlStore } from '@/stores/accessControlStore';
 import { showSuccess, showError } from '@/utils/bitrix24';
+import Logger from '@/utils/logger';
 
 const router = useRouter();
 const store = useAccessControlStore();
@@ -439,7 +440,7 @@ const enabled = computed({
       await store.toggleEnabled(value);
       showSuccess(value ? 'Проверка прав доступа включена' : 'Проверка прав доступа выключена');
     } catch (err) {
-      console.error('Ошибка переключения:', err);
+      Logger.error('ERROR', 'Ошибка переключения', err);
       toggleError.value = err.message || 'Ошибка переключения проверки';
       showError(toggleError.value);
       // Откатываем значение
@@ -499,7 +500,7 @@ onMounted(async () => {
       loadUsers()
     ]);
   } catch (err) {
-    console.error('Ошибка загрузки конфигурации:', err);
+    Logger.error('ERROR', 'Ошибка загрузки конфигурации', err);
     showError(err.message || 'Ошибка загрузки конфигурации');
   } finally {
     loading.value = false;
@@ -510,7 +511,7 @@ async function loadDepartments() {
   try {
     await store.fetchDepartments();
   } catch (err) {
-    console.error('Ошибка загрузки отделов:', err);
+    Logger.error('ERROR', 'Ошибка загрузки отделов', err);
     showError(err.message || 'Ошибка загрузки списка отделов');
   }
 }
@@ -519,7 +520,7 @@ async function loadUsers() {
   try {
     await store.fetchUsers(userSearch.value || null);
   } catch (err) {
-    console.error('Ошибка загрузки пользователей:', err);
+    Logger.error('ERROR', 'Ошибка загрузки пользователей', err);
     showError(err.message || 'Ошибка загрузки списка пользователей');
   }
 }
@@ -604,7 +605,7 @@ async function addSelectedDepartments() {
       showSuccess(`Добавлено отделов: ${result.added}${result.skipped > 0 ? `, пропущено: ${result.skipped}` : ''}`);
     }
   } catch (err) {
-    console.error('Ошибка добавления отделов:', err);
+    Logger.error('ERROR', 'Ошибка добавления отделов', err);
     showError(err.message || 'Ошибка добавления отделов');
   } finally {
     saving.value = false;
@@ -635,7 +636,7 @@ async function addSelectedUsers() {
       showSuccess(`Добавлено пользователей: ${result.added}${result.skipped > 0 ? `, пропущено: ${result.skipped}` : ''}`);
     }
   } catch (err) {
-    console.error('Ошибка добавления пользователей:', err);
+    Logger.error('ERROR', 'Ошибка добавления пользователей', err);
     showError(err.message || 'Ошибка добавления пользователей');
   } finally {
     saving.value = false;
@@ -654,7 +655,7 @@ async function removeDepartment(id) {
     await store.removeDepartment(id);
     showSuccess('Отдел успешно удален');
   } catch (err) {
-    console.error('Ошибка удаления отдела:', err);
+    Logger.error('ERROR', 'Ошибка удаления отдела', err);
     showError(err.message || 'Ошибка удаления отдела');
   } finally {
     saving.value = false;
@@ -675,7 +676,7 @@ async function removeUser(id) {
     await store.removeUser(id);
     showSuccess('Пользователь успешно удален');
   } catch (err) {
-    console.error('Ошибка удаления пользователя:', err);
+    Logger.error('ERROR', 'Ошибка удаления пользователя', err);
     showError(err.message || 'Ошибка удаления пользователя');
   } finally {
     saving.value = false;
