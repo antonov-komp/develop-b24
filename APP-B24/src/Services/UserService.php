@@ -182,6 +182,109 @@ class UserService
         
         return $userFullName;
     }
+    
+    /**
+     * Получение URL фото пользователя
+     * 
+     * @param array $user Данные пользователя
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return string|null URL фото пользователя или null
+     */
+    public function getUserPhotoUrl(array $user, string $authId, string $domain): ?string
+    {
+        if (empty($user['PERSONAL_PHOTO'])) {
+            return null;
+        }
+        
+        // PERSONAL_PHOTO может быть ID файла или URL
+        if (is_numeric($user['PERSONAL_PHOTO'])) {
+            // Это ID файла, формируем URL для скачивания
+            return 'https://' . $domain . '/rest/download?auth=' . $authId . '&id=' . $user['PERSONAL_PHOTO'];
+        }
+        
+        // Это уже URL
+        return $user['PERSONAL_PHOTO'];
+    }
+    
+    /**
+     * Получает данные пользователя с отделами и фото
+     * 
+     * Вынесено из функции getUserDataWithDepartments() в index.php (строки 245-323)
+     * 
+     * @param array $user Данные пользователя из API
+     * @param string $authId Токен авторизации
+     * @param string $domain Домен портала
+     * @return array Массив с данными пользователя и отделами ['user' => [...], 'departments' => [...]]
+     */
+    public function getUserDataWithDepartments(array $user, string $authId, string $domain): array
+    {
+        // Получаем ID отделов пользователя
+        $userDepartmentIds = $this->getUserDepartments($user);
+        $userDepartments = [];
+        
+        $this->logger->log('UserService::getUserDataWithDepartments: Getting user departments', [
+            'user_id' => $user['ID'] ?? null,
+            'uf_department_raw' => $user['UF_DEPARTMENT'] ?? null,
+            'department_ids' => $userDepartmentIds,
+            'department_ids_count' => count($userDepartmentIds)
+        ], 'info');
+        
+        // Получаем названия отделов по их ID
+        if (!empty($userDepartmentIds)) {
+            foreach ($userDepartmentIds as $deptId) {
+                $dept = $this->apiService->getDepartment($deptId, $authId, $domain);
+                if ($dept) {
+                    $userDepartments[] = [
+                        'id' => (int)$deptId,
+                        'name' => $dept['NAME'] ?? 'Без названия'
+                    ];
+                    $this->logger->log('UserService::getUserDataWithDepartments: Department found', [
+                        'dept_id' => $deptId,
+                        'dept_name' => $dept['NAME'] ?? 'Без названия'
+                    ], 'info');
+                } else {
+                    $this->logger->log('UserService::getUserDataWithDepartments: Department not found', [
+                        'dept_id' => $deptId
+                    ], 'warning');
+                }
+            }
+        } else {
+            $this->logger->log('UserService::getUserDataWithDepartments: No department IDs found', [
+                'user_id' => $user['ID'] ?? null,
+                'has_uf_department' => isset($user['UF_DEPARTMENT'])
+            ], 'info');
+        }
+        
+        // Получаем URL фото пользователя (если есть)
+        $personalPhoto = $this->getUserPhotoUrl($user, $authId, $domain);
+        
+        // Передаём данные в формате Bitrix24 API (верхний регистр) для совместимости с компонентом
+        $userData = [
+            'ID' => $user['ID'] ?? null,
+            'NAME' => $user['NAME'] ?? '',
+            'LAST_NAME' => $user['LAST_NAME'] ?? '',
+            'FULL_NAME' => $this->getUserFullName($user),
+            'EMAIL' => $user['EMAIL'] ?? '',
+            'ADMIN' => $user['ADMIN'] ?? 'N',
+            'PERSONAL_PHOTO' => $personalPhoto,
+            'UF_DEPARTMENT' => $user['UF_DEPARTMENT'] ?? null,
+            // Также сохраняем в нижнем регистре для совместимости
+            'id' => $user['ID'] ?? null,
+            'name' => $user['NAME'] ?? '',
+            'last_name' => $user['LAST_NAME'] ?? '',
+            'full_name' => $this->getUserFullName($user),
+            'email' => $user['EMAIL'] ?? '',
+            'admin' => $user['ADMIN'] ?? 'N',
+            'personal_photo' => $personalPhoto,
+            'uf_department' => $user['UF_DEPARTMENT'] ?? null
+        ];
+        
+        return [
+            'user' => $userData,
+            'departments' => $userDepartments
+        ];
+    }
 }
 
 

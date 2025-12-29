@@ -84,3 +84,45 @@ $adminChecker = new App\Helpers\AdminChecker($apiService);
 require_once(__DIR__ . '/Services/VueAppService.php');
 $vueAppService = new App\Services\VueAppService($logger);
 
+// Инициализация новых сервисов для рефакторинга index.php
+require_once(__DIR__ . '/Services/RouteService.php');
+require_once(__DIR__ . '/Services/ConfigValidatorService.php');
+require_once(__DIR__ . '/Services/AccessModeService.php');
+require_once(__DIR__ . '/Services/ErrorHandlerService.php');
+require_once(__DIR__ . '/Services/AuthInfoBuilderService.php');
+require_once(__DIR__ . '/Services/IndexPageService.php');
+
+// Инициализация RouteService
+$routeService = new App\Services\RouteService($logger);
+
+// Инициализация ConfigValidatorService
+$configValidatorService = new App\Services\ConfigValidatorService($configService, $logger);
+
+// Инициализация AccessModeService
+$accessModeService = new App\Services\AccessModeService($configService, $logger);
+
+// Инициализация ErrorHandlerService
+$errorHandlerService = new App\Services\ErrorHandlerService($logger);
+
+// Инициализация AuthInfoBuilderService
+$authInfoBuilderService = new App\Services\AuthInfoBuilderService(
+    $authService,
+    $userService,
+    $configService,
+    $accessModeService,
+    $domainResolver,
+    $logger
+);
+
+// Инициализация IndexPageService
+$indexPageService = new App\Services\IndexPageService(
+    $routeService,
+    $configValidatorService,
+    $accessModeService,
+    $authService,
+    $authInfoBuilderService,
+    $vueAppService,
+    $errorHandlerService,
+    $logger
+);
+
