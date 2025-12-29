@@ -92,6 +92,11 @@ class VueAppService
             $html = str_replace('<head>', '<head>' . "\n" . '    <base href="/APP-B24/">', $html);
         }
         
+        // Добавление favicon, если его нет в HTML
+        if (strpos($html, 'favicon.ico') === false && strpos($html, '<link rel="icon"') === false) {
+            $html = str_replace('<head>', '<head>' . "\n" . '    <link rel="icon" type="image/x-icon" href="/favicon.ico">', $html);
+        }
+        
         // Вставка скриптов в HTML
         $html = str_replace('</head>', $authScript . $appDataScript . '</head>', $html);
         if ($navigationScript) {
@@ -270,6 +275,14 @@ class VueAppService
         $script .= '            sessionStorage.setItem("app_data", JSON.stringify(appData));' . "\n";
         $script .= '            window.__APP_DATA__ = appData;' . "\n";
         $script .= '            console.log("App data from PHP saved");' . "\n";
+        $script .= '            if (appData.authInfo && appData.authInfo.departments) {' . "\n";
+        $script .= '                console.log("App data: Departments found:", appData.authInfo.departments);' . "\n";
+        $script .= '            } else {' . "\n";
+        $script .= '                console.log("App data: No departments in authInfo", {' . "\n";
+        $script .= '                    has_authInfo: !!appData.authInfo,' . "\n";
+        $script .= '                    authInfo_keys: appData.authInfo ? Object.keys(appData.authInfo) : []' . "\n";
+        $script .= '                });' . "\n";
+        $script .= '            }' . "\n";
         $script .= '        })();' . "\n";
         
         return '<script>' . "\n" . $script . '    </script>' . "\n";

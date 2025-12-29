@@ -123,6 +123,41 @@ try {
             $domain = preg_replace('#^https?://#', '', $_REQUEST['DOMAIN']);
             $domain = rtrim($domain, '/');
             
+            // Получаем данные администратора (пользователя, который устанавливает приложение)
+            $adminUserData = null;
+            try {
+                $userAuthId = htmlspecialchars($_REQUEST['AUTH_ID'], ENT_QUOTES, 'UTF-8');
+                $userDomain = htmlspecialchars($domain, ENT_QUOTES, 'UTF-8');
+                
+                // Используем токен пользователя для получения его данных
+                if (isset($userService) && isset($apiService)) {
+                    $user = $userService->getCurrentUser($userAuthId, $userDomain);
+                    if ($user && isset($user['ID'])) {
+                        $adminUserData = [
+                            'id' => $user['ID'] ?? null,
+                            'name' => $user['NAME'] ?? '',
+                            'last_name' => $user['LAST_NAME'] ?? '',
+                            'email' => $user['EMAIL'] ?? '',
+                            'admin' => $user['ADMIN'] ?? 'N'
+                        ];
+                        
+                        if (isset($logger)) {
+                            $logger->log('Admin user data retrieved during installation', [
+                                'user_id' => $adminUserData['id'],
+                                'is_admin' => $adminUserData['admin']
+                            ], 'info');
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                // Не критично - продолжаем установку без данных администратора
+                if (isset($logger)) {
+                    $logger->logError('Failed to get admin user data during installation', [
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+            
             // Сохранение настроек
             $settings = [
                 'access_token' => htmlspecialchars($_REQUEST['AUTH_ID'], ENT_QUOTES, 'UTF-8'),
@@ -134,6 +169,11 @@ try {
                 'installed_at' => date('Y-m-d H:i:s'),
                 'installed_by' => 'PLACEMENT'
             ];
+            
+            // Добавляем данные администратора, если они получены
+            if ($adminUserData) {
+                $settings['admin_user'] = $adminUserData;
+            }
             
             $settingsFile = __DIR__ . '/settings.json';
             $settingsDir = dirname($settingsFile);

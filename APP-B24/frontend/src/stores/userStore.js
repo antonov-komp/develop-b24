@@ -71,37 +71,75 @@ export const useUserStore = defineStore('user', {
         // APP_SID не работает для API вызовов, нужен auth_token
         let authId = params.get('AUTH_ID');
         
-        // Если токена нет в URL, проверяем данные из PHP (app_data)
-        // Это может быть токен пользователя (режим 1, 2) или токен админа (режим 3)
-        if (!authId || !domain) {
-          try {
-            const appDataStr = sessionStorage.getItem('app_data');
-            if (appDataStr) {
-              const appData = JSON.parse(appDataStr);
-              if (appData.authInfo && appData.authInfo.auth_id && appData.authInfo.domain) {
-                authId = appData.authInfo.auth_id;
-                domain = appData.authInfo.domain;
-                console.log('UserStore: Using token from app_data (PHP)', {
-                  token_length: authId ? authId.length : 0,
-                  domain: domain,
-                  is_authenticated: appData.authInfo.is_authenticated,
-                  has_user: !!appData.authInfo.user
+        // Проверяем данные из PHP (app_data) - это может быть токен пользователя или токен админа
+        let appData = null;
+        try {
+          const appDataStr = sessionStorage.getItem('app_data');
+          if (appDataStr) {
+            appData = JSON.parse(appDataStr);
+            
+            // Если данные пользователя уже есть в app_data - используем их
+            if (appData.authInfo && appData.authInfo.is_authenticated && appData.authInfo.user) {
+              console.log('UserStore: User data already available in app_data, using it');
+              console.log('UserStore: app_data structure:', {
+                has_authInfo: !!appData.authInfo,
+                authInfo_keys: Object.keys(appData.authInfo || {}),
+                has_departments: !!appData.authInfo.departments,
+                departments_value: appData.authInfo.departments,
+                departments_type: typeof appData.authInfo.departments,
+                is_array: Array.isArray(appData.authInfo.departments)
+              });
+              this.isAuthenticated = true;
+              this.currentUser = appData.authInfo.user;
+              this.isAdmin = appData.authInfo.is_admin || false;
+              // Используем отделы из app_data, если они есть
+              if (appData.authInfo.departments && Array.isArray(appData.authInfo.departments)) {
+                this.departments = appData.authInfo.departments;
+                console.log('UserStore: Departments loaded from app_data:', this.departments);
+                console.log('UserStore: Departments count:', this.departments.length);
+              } else {
+                console.log('UserStore: No departments in app_data', {
+                  has_departments: !!appData.authInfo.departments,
+                  departments_type: typeof appData.authInfo.departments,
+                  departments_value: appData.authInfo.departments,
+                  authInfo_keys: Object.keys(appData.authInfo || {})
                 });
-                
-                // Если данные пользователя уже есть в app_data (режим 3: токен админа), используем их
-                if (appData.authInfo.is_authenticated && appData.authInfo.user) {
-                  console.log('UserStore: User data already available in app_data, using it');
-                  this.isAuthenticated = true;
-                  this.currentUser = appData.authInfo.user;
-                  this.isAdmin = appData.authInfo.is_admin || false;
-                  this.loading = false;
-                  return; // Данные уже есть, не делаем запрос
-                }
+                this.departments = []; // Убеждаемся, что departments - пустой массив
               }
+              console.log('UserStore: Final departments state:', this.departments);
+              this.loading = false;
+              return; // Данные уже есть, не делаем запрос
             }
-          } catch (e) {
-            console.warn('UserStore: Failed to parse app_data', e);
+            
+            // Если токена нет в URL, используем токен из app_data
+            if ((!authId || !domain) && appData.authInfo && appData.authInfo.auth_id && appData.authInfo.domain) {
+              authId = appData.authInfo.auth_id;
+              domain = appData.authInfo.domain;
+              console.log('UserStore: Using token from app_data (PHP)', {
+                token_length: authId ? authId.length : 0,
+                domain: domain,
+                is_authenticated: appData.authInfo.is_authenticated,
+                has_user: !!appData.authInfo.user
+              });
+            }
           }
+        } catch (e) {
+          console.warn('UserStore: Failed to parse app_data', e);
+        }
+        
+        // Если токен есть в app_data, но данных пользователя нет - это режим 3 (токен админа)
+        // При прямом доступе токен админа может не работать для API запросов
+        // Проверяем, нет ли токена в URL (признак прямого доступа)
+        if (appData && appData.authInfo && appData.authInfo.auth_id && appData.authInfo.domain && 
+            !appData.authInfo.is_authenticated && !appData.authInfo.user &&
+            !params.get('AUTH_ID') && !params.get('DOMAIN')) {
+          // Это прямой доступ с токеном админа, но без данных пользователя
+          // Не делаем запрос к API, так как токен админа может не работать
+          console.log('UserStore: Direct access with admin token but no user data. Skipping API request.');
+          this.loading = false;
+          this.isAuthenticated = false;
+          this.currentUser = null;
+          return; // Не делаем запрос
         }
         
         // Проверка: если внешний доступ включен и нет токена ни в URL, ни в app_data, не делаем запрос
