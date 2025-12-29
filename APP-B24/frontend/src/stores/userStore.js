@@ -71,6 +71,19 @@ export const useUserStore = defineStore('user', {
         // APP_SID не работает для API вызовов, нужен auth_token
         let authId = params.get('AUTH_ID');
         
+        // Проверка: если внешний доступ включен и нет токена, не делаем запрос
+        if (this.externalAccessEnabled && !authId && !domain) {
+          // Проверяем sessionStorage на наличие токена
+          const storedAuth = sessionStorage.getItem('bitrix24_auth');
+          if (!storedAuth) {
+            console.log('UserStore: External access enabled, but no auth token. Skipping API request.');
+            this.loading = false;
+            this.isAuthenticated = false;
+            this.currentUser = null;
+            return; // Не делаем запрос, просто выходим
+          }
+        }
+        
         // Логируем доступность BX24 API
         console.log('UserStore: BX24 API check:', {
           hasBX: typeof BX !== 'undefined',
@@ -197,6 +210,20 @@ export const useUserStore = defineStore('user', {
           AUTH_ID: authId ? 'present' : 'missing',
           DOMAIN: domain ? 'present' : 'missing'
         });
+        
+        // Проверка: если внешний доступ включен и нет токена после всех попыток, не делаем запрос
+        if (this.externalAccessEnabled && (!authId || !domain)) {
+          console.log('UserStore: External access enabled, but no auth token after all attempts. Skipping API request.');
+          this.loading = false;
+          this.isAuthenticated = false;
+          this.currentUser = null;
+          return; // Не делаем запрос, просто выходим
+        }
+        
+        // Если нет токена и внешний доступ не включен, это ошибка
+        if (!authId || !domain) {
+          throw new Error('AUTH_ID and DOMAIN are required for API requests');
+        }
         
         // Если получили токен через BX24.getAuth(), добавляем его в параметры запроса
         const requestConfig = {};

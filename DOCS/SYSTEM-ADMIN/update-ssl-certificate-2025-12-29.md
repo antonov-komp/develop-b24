@@ -212,3 +212,4 @@ sudo systemctl reload nginx
 **История правок:**
 - 2025-12-29 18:08 (UTC+3, Брест): Обновлён SSL сертификат, удалены лишние поддомены, добавлен develop.antonov-mark.ru
 
+

@@ -132,6 +132,26 @@ router.beforeEach((to, from, next) => {
   
   // Проверка авторизации
   if (to.meta.requiresAuth) {
+    // Проверяем, включен ли внешний доступ
+    let externalAccessEnabled = false;
+    try {
+      const appDataStr = sessionStorage.getItem('app_data');
+      if (appDataStr) {
+        const appData = JSON.parse(appDataStr);
+        externalAccessEnabled = appData.externalAccessEnabled || false;
+      }
+    } catch (e) {
+      // Игнорируем ошибки парсинга
+    }
+    
+    // Если внешний доступ включен, пропускаем проверку авторизации
+    if (externalAccessEnabled) {
+      console.log('Router: External access enabled, skipping auth check');
+      redirectAttempts = 0; // Сбрасываем счётчик
+      next();
+      return;
+    }
+    
     // Проверяем параметры в query маршрута или в текущем URL
     const routeAuthId = to.query.AUTH_ID || to.query.APP_SID || authId;
     const routeDomain = to.query.DOMAIN || domain;
