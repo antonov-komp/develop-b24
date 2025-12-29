@@ -1,8 +1,9 @@
 <?php
 /**
- * Тестовая PHP страница для backend.antonov-mark.ru
+ * Тестовая PHP страница для develop.antonov-mark.ru
  * 
  * Дата создания: 2025-12-19 (UTC+3, Брест)
+ * Обновлено: 2025-12-29 (UTC+3, Брест) - изменён домен на develop.antonov-mark.ru
  */
 
 // Установка часового пояса
@@ -40,7 +41,7 @@ $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unkn
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PHP Info - backend.antonov-mark.ru</title>
+    <title>PHP Info - develop.antonov-mark.ru</title>
     <style>
         * {
             margin: 0;

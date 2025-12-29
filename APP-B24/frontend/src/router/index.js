@@ -90,6 +90,10 @@ const router = createRouter({
   }
 });
 
+// Счётчик попыток редиректа для предотвращения бесконечного цикла
+let redirectAttempts = 0;
+const MAX_REDIRECT_ATTEMPTS = 3;
+
 // Навигационные хуки
 router.beforeEach((to, from, next) => {
   console.log('Router beforeEach:', { to: to.path, from: from.path, fullPath: to.fullPath, query: to.query });
@@ -97,6 +101,7 @@ router.beforeEach((to, from, next) => {
   // Если маршрут содержит index.php, редиректим на главную
   if (to.path === '/index.php' || to.path.includes('index.php')) {
     console.log('Router: Redirecting from index.php to /');
+    redirectAttempts = 0; // Сбрасываем счётчик при нормальном редиректе
     next({ path: '/', query: to.query, replace: true });
     return;
   }
@@ -107,9 +112,10 @@ router.beforeEach((to, from, next) => {
   const authId = currentParams.get('AUTH_ID') || currentParams.get('APP_SID');
   const domain = currentParams.get('DOMAIN');
   
-  // Если параметры есть в текущем URL, но их нет в query целевого маршрута, добавляем
+  // Если параметры есть в текущем URL, но их нет в query целевого маршрута, добавляем их
   if (authId && domain && (!to.query.AUTH_ID && !to.query.APP_SID) && !to.query.DOMAIN) {
     console.log('Router: Adding auth params to route query');
+    redirectAttempts = 0; // Сбрасываем счётчик при успешном добавлении параметров
     next({
       path: to.path,
       query: {
@@ -131,12 +137,41 @@ router.beforeEach((to, from, next) => {
     const routeDomain = to.query.DOMAIN || domain;
     
     if (!routeAuthId || !routeDomain) {
-      console.warn('Router: Missing AUTH_ID or DOMAIN, redirecting to index');
+      // Если уже на главной странице и нет параметров - это бесконечный цикл
+      if (to.name === 'index' && to.path === '/') {
+        console.error('Router: Infinite redirect detected! Missing AUTH_ID or DOMAIN. Already on index page.');
+        redirectAttempts = 0; // Сбрасываем счётчик
+        
+        // Разрешаем доступ без авторизации, чтобы предотвратить бесконечный цикл
+        console.warn('Router: Allowing access without auth to prevent infinite loop');
+        next();
+        return;
+      }
+      
+      // Проверяем количество попыток редиректа
+      if (redirectAttempts >= MAX_REDIRECT_ATTEMPTS) {
+        // Превышен лимит попыток - это бесконечный цикл
+        console.error('Router: Infinite redirect detected! Missing AUTH_ID or DOMAIN. Attempts:', redirectAttempts);
+        redirectAttempts = 0; // Сбрасываем счётчик
+        
+        // Разрешаем доступ без авторизации, чтобы предотвратить бесконечный цикл
+        console.warn('Router: Allowing access without auth to prevent infinite loop (max attempts reached)');
+        next();
+        return;
+      }
+      
+      // Увеличиваем счётчик попыток
+      redirectAttempts++;
+      console.warn('Router: Missing AUTH_ID or DOMAIN, redirecting to index (attempt', redirectAttempts, 'of', MAX_REDIRECT_ATTEMPTS + ')');
+      
       // Редирект на главную страницу с сохранением параметров, если они есть
       const redirectQuery = authId && domain ? { AUTH_ID: authId, DOMAIN: domain } : {};
       next({ name: 'index', query: redirectQuery });
       return;
     }
+    
+    // Если авторизация успешна, сбрасываем счётчик
+    redirectAttempts = 0;
   }
   
   // Проверка прав администратора (будет реализовано через store)

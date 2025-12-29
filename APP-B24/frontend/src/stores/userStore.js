@@ -74,8 +74,8 @@ export const useUserStore = defineStore('user', {
         // Логируем доступность BX24 API
         console.log('UserStore: BX24 API check:', {
           hasBX: typeof BX !== 'undefined',
-          hasBX24: typeof BX24 !== 'undefined',
-          hasBX24GetAuth: typeof BX24 !== 'undefined' && typeof BX24.getAuth === 'function',
+          hasBX24: typeof BX24 !== 'undefined' && BX24 !== null,
+          hasBX24GetAuth: typeof BX24 !== 'undefined' && BX24 !== null && typeof BX24.getAuth === 'function',
           hasStoredAuth: !!sessionStorage.getItem('bitrix24_auth')
         });
         
@@ -99,13 +99,20 @@ export const useUserStore = defineStore('user', {
           // Но сначала проверяем, может быть токен уже был передан из PHP
           if (!authId) {
             // Пытаемся инициализировать BX24, если он доступен, но еще не инициализирован
-            if (typeof BX24 !== 'undefined' && typeof BX24.init === 'function') {
+            if (typeof BX24 !== 'undefined' && BX24 !== null && typeof BX24.init === 'function') {
               console.log('UserStore: Initializing BX24...');
               try {
                 await new Promise((resolve, reject) => {
                   const timeout = setTimeout(() => {
                     reject(new Error('BX24.init() timeout'));
                   }, 3000);
+                  
+                  // Проверяем BX24 перед вызовом
+                  if (typeof BX24 === 'undefined' || BX24 === null || typeof BX24.init !== 'function') {
+                    clearTimeout(timeout);
+                    reject(new Error('BX24.init is not available'));
+                    return;
+                  }
                   
                   BX24.init(function() {
                     clearTimeout(timeout);
@@ -116,10 +123,13 @@ export const useUserStore = defineStore('user', {
               } catch (e) {
                 console.warn('UserStore: Failed to initialize BX24', e);
               }
+            } else {
+              console.warn('UserStore: BX24.init() is not available (BX24 is null or undefined)');
             }
             
             // Теперь пытаемся получить токен через BX24.getAuth()
-            if (typeof BX24 !== 'undefined' && typeof BX24.getAuth === 'function') {
+            // Проверяем наличие BX24 перед каждым вызовом
+            if (typeof BX24 !== 'undefined' && BX24 !== null && typeof BX24.getAuth === 'function') {
               console.log('UserStore: Getting auth token via BX24.getAuth()...');
               try {
                 // Получаем токен через Promise с меньшим таймаутом
@@ -128,6 +138,13 @@ export const useUserStore = defineStore('user', {
                   const timeout = setTimeout(() => {
                     reject(new Error('BX24.getAuth() timeout'));
                   }, 3000);
+                  
+                  // Проверяем BX24 перед вызовом
+                  if (typeof BX24 === 'undefined' || BX24 === null || typeof BX24.getAuth !== 'function') {
+                    clearTimeout(timeout);
+                    reject(new Error('BX24.getAuth is not available'));
+                    return;
+                  }
                   
                   BX24.getAuth(function(authData) {
                     clearTimeout(timeout);
@@ -150,15 +167,26 @@ export const useUserStore = defineStore('user', {
                 console.warn('UserStore: Failed to get auth token from BX24.getAuth()', e);
                 // Не используем APP_SID как fallback, так как он не работает для API
               }
+            } else {
+              console.warn('UserStore: BX24.getAuth() is not available (BX24 is null or undefined)');
             }
             
             // Если все еще нет токена, используем APP_SID (но он не будет работать)
             if (!authId) {
               authId = params.get('APP_SID');
               if (authId) {
+                let reason = 'unknown';
+                if (typeof BX24 === 'undefined') {
+                  reason = 'BX24 is undefined';
+                } else if (BX24 === null) {
+                  reason = 'BX24 is null';
+                } else if (typeof BX24.getAuth !== 'function') {
+                  reason = 'BX24.getAuth is not a function';
+                } else {
+                  reason = 'BX24.getAuth() timeout';
+                }
                 console.warn('UserStore: Using APP_SID as fallback - this may not work for API calls', {
-                  reason: typeof BX24 === 'undefined' ? 'BX24 is undefined' : 
-                          (typeof BX24.getAuth !== 'function' ? 'BX24.getAuth is not a function' : 'BX24.getAuth() timeout')
+                  reason: reason
                 });
               }
             }
@@ -273,7 +301,16 @@ export const useUserStore = defineStore('user', {
           fullError: error
         });
         
-        // Сохраняем детальную информацию об ошибке
+        // Если ошибка 401 (Unauthorized) - это нормальная ситуация отсутствия авторизации
+        // Не устанавливаем error, чтобы показать блок "no-auth" вместо ошибки
+        if (error.response?.status === 401) {
+          console.log('UserStore: 401 Unauthorized - это нормально, авторизация отсутствует');
+          this.error = null; // Не показываем ошибку, покажем блок "no-auth"
+          this.isAuthenticated = false;
+          return; // Не бросаем ошибку, просто выходим
+        }
+        
+        // Для других ошибок сохраняем детальную информацию
         this.error = error.response?.data?.message || 
                     error.response?.data?.error || 
                     error.message || 

@@ -13,6 +13,45 @@
           <br><small>Проверьте консоль для деталей</small>
         </div>
         
+        <div v-else-if="!userStore.isAuthenticated && !userStore.externalAccessEnabled" class="no-auth">
+          <div class="warning-message">
+            <h2>⚠️ Авторизация не выполнена</h2>
+            <p>Для работы приложения необходима авторизация через Bitrix24.</p>
+            <p v-if="isDevMode" class="dev-info">
+              <strong>Development режим:</strong> Приложение открыто напрямую в браузере, а не через iframe Bitrix24.
+              <br>Для корректной работы откройте приложение через Bitrix24.
+            </p>
+            <p v-else>
+              Пожалуйста, откройте приложение через Bitrix24.
+            </p>
+            <div class="auth-params-info" v-if="isDevMode">
+              <h3>Параметры авторизации:</h3>
+              <ul>
+                <li>AUTH_ID: {{ hasAuthId ? 'присутствует' : 'отсутствует' }}</li>
+                <li>DOMAIN: {{ hasDomain ? 'присутствует' : 'отсутствует' }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        
+        <div v-else-if="!userStore.isAuthenticated && userStore.externalAccessEnabled" class="no-auth external-access">
+          <div class="info-message">
+            <h2>ℹ️ Внешний доступ включен</h2>
+            <p>Приложение работает в режиме внешнего доступа без авторизации Bitrix24.</p>
+            <p v-if="isDevMode" class="dev-info">
+              <strong>Development режим:</strong> Приложение открыто напрямую в браузере.
+              <br>Для полной функциональности откройте приложение через Bitrix24.
+            </p>
+            <div class="auth-params-info" v-if="isDevMode">
+              <h3>Параметры авторизации:</h3>
+              <ul>
+                <li>AUTH_ID: {{ hasAuthId ? 'присутствует' : 'отсутствует' }}</li>
+                <li>DOMAIN: {{ hasDomain ? 'присутствует' : 'отсутствует' }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        
         <div v-else-if="user" class="user-info">
           <div class="user-header">
             <div v-if="user.PERSONAL_PHOTO" class="user-photo">
@@ -90,6 +129,24 @@
             </div>
           </div>
         </div>
+        
+        <!-- Fallback: если ничего не подошло -->
+        <div v-else class="no-auth fallback">
+          <div class="info-message">
+            <h2>ℹ️ Информация</h2>
+            <p>Состояние приложения:</p>
+            <ul>
+              <li>Авторизован: {{ userStore.isAuthenticated ? 'да' : 'нет' }}</li>
+              <li>Внешний доступ: {{ userStore.externalAccessEnabled ? 'включен' : 'выключен' }}</li>
+              <li>Пользователь: {{ user ? 'загружен' : 'не загружен' }}</li>
+              <li>Загрузка: {{ userStore.loading ? 'в процессе' : 'завершена' }}</li>
+              <li>Ошибка: {{ userStore.error || 'нет' }}</li>
+            </ul>
+            <p v-if="isDevMode" class="dev-info">
+              <strong>Development режим:</strong> Это fallback блок. Проверьте логи в консоли.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -123,6 +180,20 @@ const isCurrentUserToken = computed(() => {
 const domain = computed(() => {
   const params = new URLSearchParams(window.location.search);
   return params.get('DOMAIN') || 'не указан';
+});
+
+const hasAuthId = computed(() => {
+  const params = new URLSearchParams(window.location.search);
+  return params.has('AUTH_ID') || params.has('APP_SID');
+});
+
+const hasDomain = computed(() => {
+  const params = new URLSearchParams(window.location.search);
+  return params.has('DOMAIN');
+});
+
+const isDevMode = computed(() => {
+  return import.meta.env.DEV;
 });
 
 const authStatusClass = computed(() => {
@@ -182,7 +253,11 @@ onMounted(async () => {
   console.log('Initial store state:', {
     isAdmin: userStore.isAdmin,
     isAdminUser: userStore.isAdminUser,
-    currentUser: userStore.currentUser
+    currentUser: userStore.currentUser,
+    isAuthenticated: userStore.isAuthenticated,
+    externalAccessEnabled: userStore.externalAccessEnabled,
+    loading: userStore.loading,
+    error: userStore.error
   });
   try {
     await userStore.fetchCurrentUser();
@@ -193,6 +268,13 @@ onMounted(async () => {
       userAdminField: userStore.currentUser?.ADMIN,
       userIsAdminField: userStore.currentUser?.IS_ADMIN
     });
+    console.log('Auth status after fetch:', {
+      isAuthenticated: userStore.isAuthenticated,
+      externalAccessEnabled: userStore.externalAccessEnabled,
+      hasUser: !!userStore.currentUser,
+      loading: userStore.loading,
+      error: userStore.error
+    });
   } catch (err) {
     console.error('Ошибка загрузки пользователя:', err);
     console.error('Error details:', {
@@ -200,7 +282,10 @@ onMounted(async () => {
       response: err.response?.data,
       status: err.response?.status
     });
-    showError(err.message || 'Ошибка загрузки данных пользователя');
+    // Не показываем ошибку, если это 401 - это нормально
+    if (err.response?.status !== 401) {
+      showError(err.message || 'Ошибка загрузки данных пользователя');
+    }
   }
 });
 </script>
